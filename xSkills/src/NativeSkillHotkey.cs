@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using HMLLibrary;
@@ -15,21 +13,11 @@ namespace xSkills
     {
         private const string ActionId = "xskills_skilltree";
         private const string PrefKey = "xskills_skilltree_mainkey";
-        private const string DefaultKeyMigration = "xskills_skilltree_default_c_migrated";
         private const string HarmonyId = "xskills.native-keybinds";
         private static Harmony harmony;
         private static int handledFrame = -100;
         private static bool installed;
-        private static bool inputHooked;
         private static float nextMaintenanceAt;
-        private static int lastMissingRowCount = -1;
-        private static readonly List<ControlsSettingsBox> TrackedBoxes = new List<ControlsSettingsBox>();
-        private static readonly MethodInfo RebuildKeybindInterfaces =
-            AccessTools.Method(typeof(ControlsSettingsBox), "InitializeKeybindInterfaces");
-        private static readonly Dictionary<RectTransform, float> OriginalContentHeights =
-            new Dictionary<RectTransform, float>();
-        private static readonly Dictionary<RectTransform, float> AppliedContentHeights =
-            new Dictionary<RectTransform, float>();
 
         public static KeyCode CurrentMainKey
         {
@@ -44,14 +32,6 @@ namespace xSkills
         {
             if (installed) return;
             installed = true;
-            if (!PlayerPrefs.HasKey(DefaultKeyMigration))
-            {
-                // Старое значение по умолчанию переносится на C однократно
-                if (PlayerPrefs.GetInt(PrefKey, (int)KeyCode.O) == (int)KeyCode.O)
-                    PlayerPrefs.SetInt(PrefKey, (int)KeyCode.C);
-                PlayerPrefs.SetInt(DefaultKeyMigration, 1);
-                PlayerPrefs.Save();
-            }
             if (!PlayerPrefs.HasKey(PrefKey))
             {
                 PlayerPrefs.SetInt(PrefKey, (int)KeyCode.C);
@@ -75,12 +55,13 @@ namespace xSkills
                         prefix: new HarmonyMethod(typeof(NativeSkillHotkey), nameof(BeforeSave)),
                         postfix: new HarmonyMethod(typeof(NativeSkillHotkey), nameof(AfterSave)));
                 PatchVanillaInput();
-                TrackExistingBoxes();
-                Maintain(true);
+                Maintain();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogError("[xSkills] Native keybind initialization failed: " + ex);
+                if (harmony != null) harmony.UnpatchAll(HarmonyId);
+                harmony = null;
+                installed = false;
             }
         }
 
@@ -92,7 +73,7 @@ namespace xSkills
             {
                 if (harmony != null) harmony.UnpatchAll(HarmonyId);
                 harmony = null;
-                foreach (ControlsSettingsBox box in TrackedBoxes)
+                foreach (ControlsSettingsBox box in Resources.FindObjectsOfTypeAll<ControlsSettingsBox>())
                 {
                     if (box == null || !box.gameObject.scene.IsValid()) continue;
                     KeybindInterface row = FindRow(box);
@@ -105,76 +86,41 @@ namespace xSkills
                 }
                 if (MyInput.Keybinds != null) MyInput.Keybinds.Remove(ActionId);
             }
-            catch (Exception ex) { Debug.LogWarning("[xSkills] Keybind cleanup: " + ex.Message); }
-            finally
-            {
-                RestoreContentHeights();
-                TrackedBoxes.Clear();
-                lastMissingRowCount = -1;
-                nextMaintenanceAt = 0f;
-                inputHooked = false;
-            }
+            catch (Exception) { }
         }
 
         // Привязка и строка настроек восстанавливаются после пересоздания UI
         public static void Tick()
         {
-            if (!installed) return;
-            if (Time.unscaledTime < nextMaintenanceAt) return;
+            if (!installed || Time.unscaledTime < nextMaintenanceAt) return;
             nextMaintenanceAt = Time.unscaledTime + 1.5f;
-            Maintain(false);
+            Maintain();
         }
 
-        private static void TrackBox(ControlsSettingsBox box)
-        {
-            if (!installed || box == null || !box.gameObject.scene.IsValid() || TrackedBoxes.Contains(box)) return;
-            TrackedBoxes.Add(box);
-        }
-
-        private static void TrackExistingBoxes()
-        {
-            foreach (ControlsSettingsBox box in Resources.FindObjectsOfTypeAll<ControlsSettingsBox>())
-                TrackBox(box);
-        }
-
-        private static void Maintain(bool initial)
+        private static void Maintain()
         {
             try
             {
-                int seen = 0;
-                int missing = 0;
-                for (int i = TrackedBoxes.Count - 1; i >= 0; i--)
+                foreach (ControlsSettingsBox box in Resources.FindObjectsOfTypeAll<ControlsSettingsBox>())
                 {
-                    ControlsSettingsBox box = TrackedBoxes[i];
-                    if (box == null || !box.gameObject.scene.IsValid())
-                    {
-                        TrackedBoxes.RemoveAt(i);
-                        continue;
-                    }
-                    seen++;
+                    if (box == null || !box.gameObject.scene.IsValid()) continue;
                     if (EnsureRow(box))
                     {
-                        if (RebuildKeybindInterfaces != null) RebuildKeybindInterfaces.Invoke(box, null);
+                        MethodInfo rebuild = AccessTools.Method(typeof(ControlsSettingsBox), "InitializeKeybindInterfaces");
+                        if (rebuild != null) rebuild.Invoke(box, null);
                     }
-                    if (FindRow(box) == null) missing++;
-                    else
+                    KeybindInterface row = FindRow(box);
+                    if (row != null)
                     {
+                        PlaceRowAtBottom(box, row);
                         SyncExistingBinding(box);
-                        TranslateLabel(FindRow(box));
+                        TranslateLabel(row);
                     }
                 }
                 if (MyInput.Keybinds != null && !MyInput.Keybinds.ContainsKey(ActionId))
-                {
                     MyInput.Keybinds[ActionId] = new Keybind(ActionId, SavedDefault());
-                }
-                if ((initial || missing != lastMissingRowCount) && missing > 0)
-                    Debug.LogWarning("[xSkills] Native settings row missing in " + missing + " of " + seen + " controls panels");
-                lastMissingRowCount = missing;
             }
-            catch (Exception ex)
-            {
-                Debug.LogWarning("[xSkills] Native keybind maintenance: " + ex);
-            }
+            catch (Exception) { }
         }
 
         public static bool WasPressed()
@@ -183,8 +129,7 @@ namespace xSkills
             Keybind binding = GetBinding();
             KeyCode main = binding == null ? SavedDefault() : binding.MainKey;
             KeyCode alternative = binding == null ? KeyCode.None : binding.AltKey;
-            bool pressed = Pressed(main) || Pressed(alternative);
-            return pressed;
+            return Pressed(main) || Pressed(alternative);
         }
 
         public static void MarkHandled()
@@ -199,7 +144,7 @@ namespace xSkills
 
         private static KeyCode SavedDefault()
         {
-            return (KeyCode)PlayerPrefs.GetInt(PrefKey, (int)KeyCode.C);
+            return (KeyCode)PlayerPrefs.GetInt(PrefKey, (int)KeyCode.O);
         }
 
         private static Keybind GetBinding()
@@ -216,11 +161,7 @@ namespace xSkills
         private static void Patch(Type type, string methodName, string prefix)
         {
             MethodInfo target = AccessTools.Method(type, methodName);
-            if (target == null)
-            {
-                Debug.LogWarning("[xSkills] Keybind target missing: " + type.Name + "." + methodName);
-                return;
-            }
+            if (target == null) return;
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(NativeSkillHotkey), prefix));
         }
 
@@ -237,16 +178,8 @@ namespace xSkills
                 try
                 {
                     harmony.Patch(method, prefix: new HarmonyMethod(typeof(NativeSkillHotkey), nameof(BeforeVanillaInput)));
-                    inputHooked = true;
                 }
-                catch (Exception ex)
-                {
-                    Debug.LogWarning("[xSkills] Could not hook " + method + ": " + ex.Message);
-                }
-            }
-            if (!inputHooked)
-            {
-                Debug.LogWarning("[xSkills] No compatible MyInput(string) input reader found; vanilla action may still fire");
+                catch (Exception) { }
             }
         }
 
@@ -273,13 +206,11 @@ namespace xSkills
 
         private static void BeforeInitialize(ControlsSettingsBox __instance)
         {
-            TrackBox(__instance);
             EnsureRow(__instance);
         }
 
         private static void BeforeLoad(ControlsSettingsBox __instance)
         {
-            TrackBox(__instance);
             EnsureRow(__instance);
             KeybindInterface row = FindRow(__instance);
             if (row != null) TranslateLabel(row);
@@ -287,41 +218,40 @@ namespace xSkills
 
         private static void AfterLoad(ControlsSettingsBox __instance)
         {
-            TrackBox(__instance);
             if (EnsureRow(__instance))
             {
-                if (RebuildKeybindInterfaces != null) RebuildKeybindInterfaces.Invoke(__instance, null);
+                MethodInfo rebuild = AccessTools.Method(typeof(ControlsSettingsBox), "InitializeKeybindInterfaces");
+                if (rebuild != null) rebuild.Invoke(__instance, null);
             }
-            MigrateLegacyBinding(__instance);
             SyncExistingBinding(__instance);
             KeybindInterface loadedRow = FindRow(__instance);
             if (loadedRow != null)
             {
+                PlaceRowAtBottom(__instance, loadedRow);
                 TranslateLabel(loadedRow);
             }
         }
 
         private static void AfterSetFocus(ControlsSettingsBox __instance, bool gamepad)
         {
-            TrackBox(__instance);
-            if (gamepad || FindRow(__instance) == null) return;
-            ExpandContent(__instance, 64f);
-            KeybindInterface focusedRow = FindRow(__instance);
-            TranslateLabel(focusedRow);
+            if (gamepad) return;
+            KeybindInterface row = FindRow(__instance);
+            if (row == null) return;
+            PlaceRowAtBottom(__instance, row);
+            TranslateLabel(row);
         }
 
         private static void BeforeSave(ControlsSettingsBox __instance)
         {
-            TrackBox(__instance);
             if (EnsureRow(__instance))
             {
-                if (RebuildKeybindInterfaces != null) RebuildKeybindInterfaces.Invoke(__instance, null);
+                MethodInfo rebuild = AccessTools.Method(typeof(ControlsSettingsBox), "InitializeKeybindInterfaces");
+                if (rebuild != null) rebuild.Invoke(__instance, null);
             }
         }
 
         private static void AfterSave(ControlsSettingsBox __instance)
         {
-            TrackBox(__instance);
             KeybindInterface row = FindRow(__instance);
             if (row == null || row.Keybind == null) return;
             PlayerPrefs.SetInt(PrefKey, (int)row.Keybind.MainKey);
@@ -344,7 +274,6 @@ namespace xSkills
                 KeybindInterface[] originals = box.GetComponentsInChildren<KeybindInterface>(true);
                 if (originals.Length == 0)
                 {
-                    Debug.LogWarning("[xSkills] Native controls row: no KeybindInterface template was found");
                     return false;
                 }
 
@@ -376,7 +305,6 @@ namespace xSkills
                 }
                 if (template == null)
                 {
-                    Debug.LogWarning("[xSkills] Normal controls row template not found");
                     return false;
                 }
 
@@ -388,7 +316,9 @@ namespace xSkills
                     candidateRoot.GetComponentsInChildren<TMP_Text>(true).Length > 2)
                     source = candidateRoot;
                 Transform parent = source.parent;
-                // Новое действие помещается в конец списка штатного управления
+                // Строка вставляется под ходьбой - её не нужно искать прокруткой
+                Transform firstAction = parent.Find("Walk");
+                int index = firstAction != null ? firstAction.GetSiblingIndex() : source.GetSiblingIndex();
                 GameObject instance = UnityEngine.Object.Instantiate(source.gameObject, parent);
                 instance.name = "xSkills_SkillTree_Keybind";
                 // Отключается ванильная локализация, перезаписывающая подпись клона
@@ -397,7 +327,7 @@ namespace xSkills
                     if (component != null && component.GetType().FullName == "I2.Loc.Localize")
                         component.enabled = false;
                 }
-                instance.transform.SetAsLastSibling();
+                instance.transform.SetSiblingIndex(index + 1);
                 KeybindInterface row = instance.GetComponentInChildren<KeybindInterface>(true);
                 if (row == null)
                 {
@@ -410,17 +340,22 @@ namespace xSkills
                 row.Set(new Keybind(ActionId, SavedDefault()));
                 TranslateLabel(row);
 
-                RectTransform sourceRect = source.GetComponent<RectTransform>();
+                RectTransform sourceRect = firstAction != null
+                    ? firstAction.GetComponent<RectTransform>() : source.GetComponent<RectTransform>();
                 RectTransform targetRect = instance.GetComponent<RectTransform>();
                 bool automaticLayout = parent.GetComponent<LayoutGroup>() != null;
                 float step = sourceRect != null ? Mathf.Max(40f, sourceRect.rect.height + 6f) : 48f;
+                if (PlaceRowAtBottom(box, row)) return true;
                 if (!automaticLayout && sourceRect != null && targetRect != null)
                 {
-                    // Без LayoutGroup новая строка помещается ниже последней ванильной
-                    RectTransform previous = parent.childCount > 1
-                        ? parent.GetChild(parent.childCount - 2) as RectTransform : null;
-                    targetRect.anchoredPosition = (previous != null
-                        ? previous.anchoredPosition : sourceRect.anchoredPosition) + Vector2.down * step;
+                    // Соседние строки сдвигаются, чтобы новая не перекрывала управление
+                    for (int i = index + 2; i < parent.childCount; i++)
+                    {
+                        RectTransform next = parent.GetChild(i) as RectTransform;
+                        if (next == null || next == targetRect) continue;
+                        next.anchoredPosition += Vector2.down * step;
+                    }
+                    targetRect.anchoredPosition = sourceRect.anchoredPosition + Vector2.down * step;
                 }
                 if (automaticLayout)
                 {
@@ -430,11 +365,70 @@ namespace xSkills
                 ExpandContent(box, step);
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.LogError("[xSkills] Unable to add native control row: " + ex);
                 return false;
             }
+        }
+
+        private static bool PlaceRowAtBottom(ControlsSettingsBox box, KeybindInterface row)
+        {
+            if (box == null || row == null) return false;
+            FieldInfo field = AccessTools.Field(typeof(ControlsSettingsBox), "contentBox");
+            RectTransform content = field != null ? field.GetValue(box) as RectTransform : null;
+            if (content == null) return false;
+
+            Transform root = row.transform;
+            while (root.parent != null && root.name != "xSkills_SkillTree_Keybind"
+                && root.parent != box.transform)
+                root = root.parent;
+            if (root.name != "xSkills_SkillTree_Keybind" || !root.IsChildOf(content)) return false;
+            RectTransform rect = root as RectTransform;
+            Transform parent = root.parent;
+            if (rect == null || parent == null) return false;
+
+            float step = Mathf.Max(48f, rect.rect.height + 8f);
+            if (root.GetSiblingIndex() != parent.childCount - 1)
+                root.SetAsLastSibling();
+
+            RectTransform parentRect = parent as RectTransform;
+            if (parent.GetComponent<LayoutGroup>() != null)
+            {
+                if (parentRect != null) LayoutRebuilder.MarkLayoutForRebuild(parentRect);
+            }
+            else
+            {
+                // Строка устанавливается после последней штатной привязки
+                float lowest = float.PositiveInfinity;
+                Vector3[] corners = new Vector3[4];
+                foreach (KeybindInterface candidate in box.GetComponentsInChildren<KeybindInterface>(true))
+                {
+                    if (candidate == null || candidate == row) continue;
+                    Transform candidateRoot = candidate.transform;
+                    while (candidateRoot.parent != null && candidateRoot.parent != parent
+                        && candidateRoot != parent)
+                        candidateRoot = candidateRoot.parent;
+                    if (candidateRoot == parent || candidateRoot.parent != parent ||
+                        !candidateRoot.gameObject.activeSelf) continue;
+                    RectTransform otherRect = candidateRoot as RectTransform;
+                    if (otherRect == null) continue;
+                    otherRect.GetWorldCorners(corners);
+                    float bottom = parent.InverseTransformPoint(corners[0]).y;
+                    if (bottom < lowest) lowest = bottom;
+                }
+                if (!float.IsPositiveInfinity(lowest))
+                {
+                    rect.GetWorldCorners(corners);
+                    float top = parent.InverseTransformPoint(corners[1]).y;
+                    float movement = lowest - 8f - top;
+                    if (Mathf.Abs(movement) > .25f)
+                        rect.anchoredPosition += Vector2.up * movement;
+                }
+            }
+
+            ExpandContent(box, step);
+            EnsureRowScrollRange(box, content, rect);
+            return true;
         }
 
         private static void ExpandContent(ControlsSettingsBox box, float extra)
@@ -442,33 +436,45 @@ namespace xSkills
             FieldInfo field = AccessTools.Field(typeof(ControlsSettingsBox), "contentBox");
             RectTransform content = field != null ? field.GetValue(box) as RectTransform : null;
             if (content == null) return;
-            Vector2 size = content.sizeDelta;
-            float requiredHeight = Mathf.Max(size.y, 2684f + extra);
-            if (Mathf.Abs(size.y - requiredHeight) < .01f) return;
-            if (!OriginalContentHeights.ContainsKey(content))
-                OriginalContentHeights[content] = size.y;
-            AppliedContentHeights[content] = requiredHeight;
-            size.y = requiredHeight;
-            content.sizeDelta = size;
-            LayoutRebuilder.MarkLayoutForRebuild(content);
+            float required = 2684f + extra;
+            if (content.rect.height + .5f >= required) return;
+            Vector2 minimum = content.offsetMin;
+            minimum.y -= required - content.rect.height;
+            content.offsetMin = minimum;
         }
 
-        private static void RestoreContentHeights()
+        private static void EnsureRowScrollRange(ControlsSettingsBox box, RectTransform content, RectTransform row)
         {
-            foreach (KeyValuePair<RectTransform, float> entry in OriginalContentHeights)
+            // Область прокрутки расширяется только если строка выходит за её границу
+            FitRowInContent(content, row, 16f);
+            ScrollRect scroll = content.GetComponentInParent<ScrollRect>(true);
+            if (scroll == null || scroll.content == null || !content.IsChildOf(scroll.content))
             {
-                RectTransform content = entry.Key;
-                if (content == null) continue;
-                float applied;
-                if (!AppliedContentHeights.TryGetValue(content, out applied) ||
-                    Mathf.Abs(content.sizeDelta.y - applied) > .01f) continue;
-                Vector2 size = content.sizeDelta;
-                size.y = entry.Value;
-                content.sizeDelta = size;
-                LayoutRebuilder.MarkLayoutForRebuild(content);
+                foreach (ScrollRect candidate in box.GetComponentsInChildren<ScrollRect>(true))
+                {
+                    if (candidate.content != null && content.IsChildOf(candidate.content))
+                    {
+                        scroll = candidate;
+                        break;
+                    }
+                }
             }
-            OriginalContentHeights.Clear();
-            AppliedContentHeights.Clear();
+            if (scroll == null || scroll.content == null) return;
+            if (scroll.content != content && content.IsChildOf(scroll.content))
+                FitRowInContent(scroll.content, row, 16f);
+        }
+
+        private static void FitRowInContent(RectTransform content, RectTransform row, float padding)
+        {
+            if (content == null || row == null) return;
+            Vector3[] corners = new Vector3[4];
+            row.GetWorldCorners(corners);
+            float bottom = content.InverseTransformPoint(corners[0]).y;
+            float missing = content.rect.yMin + padding - bottom;
+            if (missing <= .5f) return;
+            Vector2 minimum = content.offsetMin;
+            minimum.y -= missing + 4f;
+            content.offsetMin = minimum;
         }
 
         private static void TranslateLabel(KeybindInterface row)
@@ -496,23 +502,6 @@ namespace xSkills
                     break;
                 }
             }
-            if (!found)
-            {
-                Debug.LogWarning("[xSkills] Control row has no non-button Text/TMP label");
-            }
-        }
-
-        private static void MigrateLegacyBinding(ControlsSettingsBox box)
-        {
-            // Сохранённое старое O заменяется, если привязка не изменялась
-            if (SavedDefault() != KeyCode.C) return;
-            KeybindInterface row = FindRow(box);
-            if (row == null || row.Keybind == null) return;
-            Keybind binding = row.Keybind;
-            if (binding.MainKey != KeyCode.O || binding.AltKey != KeyCode.None) return;
-            binding.MainKey = KeyCode.C;
-            row.Set(binding);
-            if (MyInput.Keybinds != null) MyInput.Keybinds[ActionId] = binding;
         }
 
         private static void SyncExistingBinding(ControlsSettingsBox box)
