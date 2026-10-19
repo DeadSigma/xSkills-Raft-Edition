@@ -143,6 +143,7 @@ namespace xSkills.GUI
             UpdateAbilityParallax(dt);
             if (pointerInput != null) pointerInput.Tick();
             if (page == "_home") TickPlayerHome(dt);
+            else if (page == "_settings") UpdateClimateRateLabel();
         }
 
         private void CaptureEventSystems()
@@ -213,6 +214,8 @@ namespace xSkills.GUI
 
         public bool ChangeAbilityTier(AbilityData ability, int tier)
         {
+            SkillProgressStorage.EnsureLoaded();
+            if (!SkillProgressStorage.IsWorldBound) return false;
             if (selectedSkill == null || !selectedSkill.SetTier(ability, tier)) return false;
             SkillCatalog.NotifyChanged();
             return true;

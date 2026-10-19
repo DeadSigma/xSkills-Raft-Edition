@@ -2,12 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using xSkills.Systems;
 
 namespace xSkills.GUI
 {
     internal sealed class PlayerModelPreview : IDisposable
     {
-        private const int PreviewLayer = 30;
+        private const int PreviewLayer = 28;
         private const float MaxTurnDegrees = 45f;
         private const float TurnSpeed = 0.82f;
         private const float RenderInterval = 1f / 30f;
@@ -131,6 +132,10 @@ namespace xSkills.GUI
                 cameraObject.transform.SetParent(sceneRoot.transform, false);
                 camera = cameraObject.AddComponent<Camera>();
                 camera.enabled = false;
+                camera.depth = -1000f;
+                camera.useOcclusionCulling = false;
+                camera.renderingPath = RenderingPath.Forward;
+                camera.depthTextureMode = DepthTextureMode.None;
                 camera.cullingMask = 1 << PreviewLayer;
                 camera.clearFlags = CameraClearFlags.SolidColor;
                 camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
@@ -147,6 +152,7 @@ namespace xSkills.GUI
                 lamp.color = new Color(1f, .93f, .83f, 1f);
                 lamp.intensity = 1.3f;
                 lamp.cullingMask = 1 << PreviewLayer;
+                lamp.shadows = LightShadows.None;
                 lightObject.transform.rotation = Quaternion.Euler(30f, 145f, 0f);
 
                 FitFullBody();
@@ -916,6 +922,8 @@ namespace xSkills.GUI
                     target.gameObject.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
                     MeshRenderer renderCopy = target.gameObject.AddComponent<MeshRenderer>();
                     renderCopy.sharedMaterials = meshRenderer.sharedMaterials;
+                    renderCopy.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    renderCopy.receiveShadows = false;
                     renderCopy.enabled = true;
                     rendererCount++;
                 }
@@ -1149,6 +1157,8 @@ namespace xSkills.GUI
                     pair.Value.gameObject.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
                     MeshRenderer output = pair.Value.gameObject.AddComponent<MeshRenderer>();
                     output.sharedMaterials = sourceMesh.sharedMaterials;
+                    output.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    output.receiveShadows = false;
                     output.enabled = true;
                     rendererCount++;
                 }
@@ -1173,6 +1183,8 @@ namespace xSkills.GUI
                 filter.sharedMesh = snapshot;
                 MeshRenderer output = target.gameObject.AddComponent<MeshRenderer>();
                 output.sharedMaterials = source.sharedMaterials;
+                output.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                output.receiveShadows = false;
                 output.enabled = true;
                 bakedMeshes.Add(snapshot);
                 return true;
@@ -1246,6 +1258,8 @@ namespace xSkills.GUI
                 SkinnedMeshRenderer copy = target.gameObject.AddComponent<SkinnedMeshRenderer>();
                 copy.sharedMesh = source.sharedMesh;
                 copy.sharedMaterials = source.sharedMaterials;
+                copy.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                copy.receiveShadows = false;
                 copy.rootBone = mappedRoot;
                 copy.bones = mappedBones;
                 copy.localBounds = source.localBounds;
@@ -1553,7 +1567,12 @@ namespace xSkills.GUI
 
         public void Render()
         {
-            if (!Available || Time.unscaledTime < nextRenderAt) return;
+            if (!Available) return;
+            if (Time.unscaledTime < nextRenderAt)
+            {
+                camera.enabled = false;
+                return;
+            }
             nextRenderAt = Time.unscaledTime + RenderInterval;
             if (Time.unscaledTime >= nextEquipmentUpdate)
             {
@@ -1566,17 +1585,28 @@ namespace xSkills.GUI
                 float elapsed = Time.unscaledTime - createdAt;
                 float yaw = Mathf.Sin(elapsed * TurnSpeed) * MaxTurnDegrees;
                 if (turntable != null) turntable.localRotation = Quaternion.Euler(0f, yaw, 0f);
-                camera.Render();
+                // Камера выводится Unity до игровой камеры, без ручного вызова Render
+                camera.enabled = true;
             }
             catch (Exception)
             {
+                camera.enabled = false;
             }
         }
 
         public void Dispose()
         {
-            if (camera != null) camera.targetTexture = null;
-            if (sceneRoot != null) UnityEngine.Object.Destroy(sceneRoot);
+            if (camera != null)
+            {
+                camera.enabled = false;
+                camera.targetTexture = null;
+            }
+            if (previewLight != null) previewLight.enabled = false;
+            if (sceneRoot != null)
+            {
+                sceneRoot.SetActive(false);
+                UnityEngine.Object.Destroy(sceneRoot);
+            }
             if (texture != null)
             {
                 texture.Release();
@@ -1602,6 +1632,7 @@ namespace xSkills.GUI
             rightHandHookRoot = null;
             rendererCount = 0;
             camera = null;
+            previewLight = null;
             texture = null;
             sceneRoot = null;
             turntable = null;

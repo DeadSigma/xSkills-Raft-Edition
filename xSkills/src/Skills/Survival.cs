@@ -6,6 +6,8 @@ namespace xSkills.Skills
         {
             AddAbility(new Ability("longlife", "xskills:ability-longlife",
                 "xskills:abilitydesc-longlife", 1, 3, new[] { 10, 20, 30 }));
+            AddAbility(new Ability("forecast", "xskills:ability-forecast",
+                "xskills:abilitydesc-forecast", 2, 1, new[] { 10 }));
             AddAbility(new Ability("hugestomach", "xskills:ability-hugestomach",
                 "xskills:abilitydesc-hugestomach", 3, 3, new[] { 10, 20, 30 }));
             AddAbility(new Ability("strongback", "xskills:ability-strongback",

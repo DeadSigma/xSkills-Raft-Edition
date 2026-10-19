@@ -213,7 +213,6 @@ namespace xSkills.GUI
 
         private void TickPlayerHome(float dt)
         {
-            // Превью поворачивается плавно, статистика обновляется отдельно
             if (playerPreview != null && playerPreview.Available) playerPreview.Render();
             if (Time.unscaledTime < nextPlayerHomeUpdate) return;
             nextPlayerHomeUpdate = Time.unscaledTime + .25f;
@@ -239,7 +238,8 @@ namespace xSkills.GUI
             homeDateText.text = state.Date;
             homeClockText.text = state.Clock;
             homeTemperatureText.text = state.Temperature.ToString("0.0") + " °C";
-            homeWeatherText.text = state.Weather;
+            homeWeatherText.text = string.IsNullOrEmpty(state.Climate) ? state.Weather :
+                state.Weather + " - " + state.Climate;
         }
 
         private void RefreshPlayerHome(bool initial)

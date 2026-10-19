@@ -26,6 +26,8 @@ namespace xSkills.GUI
             settingsSectionIds.Add("audio");
             if (Raft_Network.IsHost)
             {
+                settingsSectionIds.Add("timeworld");
+                settingsSectionIds.Add("survival");
                 settingsSectionIds.Add("balance");
                 settingsSectionIds.Add("diet");
             }
@@ -82,6 +84,8 @@ namespace xSkills.GUI
 
         private string SettingsSectionTitle(string id)
         {
+            if (id == "timeworld") return Localizer.T("settings-timeworld-title");
+            if (id == "survival") return Localizer.T("settings-survival-title");
             if (id == "audio") return Localizer.T("settings-audio-title");
             if (id == "balance") return Localizer.T("settings-balance-title");
             if (id == "diet") return Localizer.T("settings-diet-title");
@@ -92,6 +96,8 @@ namespace xSkills.GUI
 
         private string SettingsSectionSummary(string id)
         {
+            if (id == "timeworld") return Localizer.T("settings-timeworld-summary");
+            if (id == "survival") return Localizer.T("settings-survival-summary");
             if (id == "audio") return Localizer.T("settings-audio-summary");
             if (id == "balance") return Localizer.T("settings-balance-summary");
             if (id == "diet") return Localizer.T("settings-diet-summary");
@@ -131,6 +137,8 @@ namespace xSkills.GUI
             }
             settingsRightOverlay = UIFactory.Rect(rightInfo, "Settings content", 0, 54, 645, 775);
             if (id == "audio") BuildSoundSettings(settingsRightOverlay);
+            else if (id == "timeworld") BuildTimeWorldSettings(settingsRightOverlay);
+            else if (id == "survival") BuildSurvivalSettings(settingsRightOverlay);
             else if (id == "balance") BuildBalanceSettings(settingsRightOverlay);
             else if (id == "diet") BuildDietRulesPage(settingsRightOverlay);
             else BuildSkillSettings(settingsRightOverlay, id.Substring(6));
@@ -230,7 +238,7 @@ namespace xSkills.GUI
         }
 
         private static Slider SettingsSlider(Transform parent, string id, float x, float y, float width,
-            float minimum, float maximum, float initial, Action<float> changed)
+            float minimum, float maximum, float initial, Action<float> changed, bool wholeNumbers = true)
         {
             const float height = 36f;
             const float sideInset = 11f;
@@ -244,7 +252,7 @@ namespace xSkills.GUI
             slider.direction = Slider.Direction.LeftToRight;
             slider.minValue = minimum;
             slider.maxValue = maximum;
-            slider.wholeNumbers = true;
+            slider.wholeNumbers = wholeNumbers;
 
             float innerWidth = width - sideInset * 2f;
             UIFactory.Fill(root, "Track border", sideInset - 2f, 13f, innerWidth + 4f, 11f,

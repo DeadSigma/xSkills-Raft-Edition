@@ -203,7 +203,8 @@ namespace xSkills.Systems
                 Canvas.willRenderCanvases -= UpdateHealthHud;
                 Canvas.willRenderCanvases += UpdateHealthHud;
                 harmony = new Harmony(HarmonyId);
-                harmony.PatchAll(typeof(DietSystem).Assembly);
+                harmony.CreateClassProcessor(typeof(ConsumePatch)).Patch();
+                harmony.CreateClassProcessor(typeof(DeathPatch)).Patch();
             }
             catch (Exception ex)
             {

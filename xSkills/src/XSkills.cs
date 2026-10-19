@@ -19,10 +19,13 @@ namespace xSkills
         {
             AdminCommands.Active = true;
             SkillCatalog.Create();
+            SkillProgressStorage.Initialize();
 
             ResourceLoader.Configure(this);
             SoundPlayer.Initialize();
             BodyTemperatureSystem.Initialize();
+            NotebookForecastSystem.Initialize();
+            TimeControlSystem.Initialize();
             ui = new SkillGraphicalUI();
             ui.Initialize();
             notifications = SkillNotifications.Create();
@@ -32,8 +35,11 @@ namespace xSkills
 
         public void Update()
         {
+            SkillProgressStorage.Tick();
             NativeSkillHotkey.Tick();
             BodyTemperatureSystem.Tick(Time.deltaTime, Time.unscaledDeltaTime);
+            TimeControlSystem.Tick();
+            NotebookForecastSystem.Tick();
             if (ui == null) return;
             if (NativeSkillHotkey.WasPressed())
             {
@@ -82,6 +88,9 @@ namespace xSkills
         {
             try
             {
+                SkillProgressStorage.EnsureLoaded();
+                if (name != "bodytemp" && !SkillProgressStorage.IsWorldBound)
+                    return "xSkills: мир ещё не загружен, повтори команду после загрузки";
                 return handler(args);
             }
             catch (Exception ex)
@@ -98,10 +107,13 @@ namespace xSkills
             if (notifications != null) notifications.Dispose();
             notifications = null;
             NativeSkillHotkey.Uninstall();
+            NotebookForecastSystem.Dispose();
+            TimeControlSystem.Dispose();
             BodyTemperatureSystem.Dispose();
             SoundPlayer.Shutdown();
             Localizer.Reset();
             ResourceLoader.Clear();
+            SkillProgressStorage.Dispose();
             SkillCatalog.Clear();
             AdminCommands.Active = false;
         }

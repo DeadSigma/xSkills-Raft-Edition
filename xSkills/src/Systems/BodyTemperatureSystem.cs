@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using HMLLibrary;
+using HarmonyLib;
 using UltimateWater;
 using UnityEngine;
 using UnityEngine.UI;
@@ -22,6 +23,7 @@ namespace xSkills.Systems
         private const float FireExtraDryingPerSecond = 0.85f;
         private const float HeatScanInterval = 8f;
         private const float SimulationInterval = 0.2f;
+        private const string MovementHarmonyId = "xskills.bodytemperature.movement";
         private const float PlayerPollInterval = 0.5f;
         private const float ClassificationCacheLifetime = 120f;
         private const int MaximumClassifiedBlocks = 4096;
@@ -57,28 +59,99 @@ namespace xSkills.Systems
         private static bool sheltered;
         private static bool fullySubmerged;
         private static bool isInWorld;
+        private static bool deathLatched;
         private static bool installed;
         private static Network_Player currentPlayer;
         private static GameObject overlayRoot;
         private static Image coldOverlay;
         private static Image hotOverlay;
+        private static Image nauseaOverlay;
+        private const int DistortionBands = 18;
+        private static RawImage[] distortionImages;
+        private static TemperatureNauseaCapture nauseaCapture;
+        private static float nextNauseaCameraCheck;
+        private static bool distortionVisible;
+        private static Harmony movementHarmony;
 
         public static float Temperature { get; private set; } = NormalTemperature;
         public static float Wetness { get; private set; }
         public static bool IsShaded { get { return shaded; } }
         public static bool HasPlayer { get { return isInWorld && currentPlayer != null; } }
+        internal static float OutsideTemperature { get { return outsideTemperature; } }
+        internal static float AirHumidity { get { return airHumidity; } }
+        internal static float Daylight { get { return daylight; } }
+        internal static bool IsRaining { get { return raining; } }
+        internal static PersonController LocalController
+        {
+            get { return HasPlayer && currentPlayer.PlayerScript != null && !currentPlayer.PlayerScript.IsDead
+                ? currentPlayer.PersonController : null; }
+        }
+        internal static float MovementMultiplier
+        {
+            get
+            {
+                if (LocalController == null) return 1f;
+                BodyTemperatureSettings settings = BodyTemperatureSettings.Current;
+                float factor = 1f;
+                if (settings.ColdEnabled)
+                {
+                    float cold = Mathf.Clamp01((settings.ColdSlowStart - Temperature) /
+                        Mathf.Max(.1f, settings.ColdSlowStart - MinimumTemperature));
+                    factor = Mathf.Min(factor, Mathf.Lerp(1f, settings.ColdMinimumSpeed, cold));
+                }
+                if (settings.HeatEnabled)
+                {
+                    float hot = Mathf.Clamp01((Temperature - settings.HeatSlowStart) /
+                        Mathf.Max(.1f, MaximumTemperature - settings.HeatSlowStart));
+                    factor = Mathf.Min(factor, Mathf.Lerp(1f, settings.HeatMinimumSpeed, hot));
+                }
+                return factor;
+            }
+        }
+        private static float NauseaIntensity
+        {
+            get
+            {
+                BodyTemperatureSettings s = BodyTemperatureSettings.Current;
+                return !s.HeatEnabled || !s.NauseaEnabled ? 0f :
+                    Mathf.Clamp01((Temperature - s.NauseaStart) /
+                        Mathf.Max(.1f, MaximumTemperature - s.NauseaStart));
+            }
+        }
+        internal static bool NeedsNauseaCapture
+        {
+            get
+            {
+                BodyTemperatureSettings s = BodyTemperatureSettings.Current;
+                return HasPlayer && s.NauseaDistortionEnabled && s.NauseaStrength > 0f &&
+                    NauseaIntensity > 0.015f;
+            }
+        }
 
         public static void Initialize()
         {
             if (installed) return;
             installed = true;
             PersonController.CameraSubmersionAction += OnCameraSubmersion;
+            try
+            {
+                movementHarmony = new Harmony(MovementHarmonyId);
+                movementHarmony.CreateClassProcessor(typeof(TemperatureGroundMovementPatch)).Patch();
+                movementHarmony.CreateClassProcessor(typeof(TemperatureWaterMovementPatch)).Patch();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[xSkills Temperature] Movement patch: " + ex.Message);
+                if (movementHarmony != null) movementHarmony.UnpatchAll(MovementHarmonyId);
+                movementHarmony = null;
+            }
             CreateOverlay();
         }
 
         public static void Tick(float dt, float uiDt)
         {
             if (!installed) return;
+            BodyTemperatureSettings.Tick();
 
             // Игрок и состояние сцены проверяются не каждый кадр
             float now = Time.unscaledTime;
@@ -113,10 +186,24 @@ namespace xSkills.Systems
                 {
                     SetOverlayAlpha(coldOverlay, 0f);
                     SetOverlayAlpha(hotOverlay, 0f);
+                    SetOverlayAlpha(nauseaOverlay, 0f);
+                    StopNauseaCapture();
                     overlayRoot.SetActive(false);
                 }
                 return;
             }
+
+            if (player.PlayerScript != null && player.PlayerScript.IsDead)
+            {
+                if (!deathLatched)
+                {
+                    deathLatched = true;
+                    Temperature = NormalTemperature;
+                    Wetness = 0f;
+                    injuryTimer = 0f;
+                }
+            }
+            else deathLatched = false;
 
             PersonController controller = player.PersonController;
             bool inWater = controller != null && controller.controllerType == ControllerType.Water;
@@ -156,19 +243,34 @@ namespace xSkills.Systems
                 Simulate(player, step, inWater, underwater);
             }
 
-            float coldAmount = Mathf.Clamp01((35f - Temperature) / (35f - MinimumTemperature));
-            float heatAmount = Mathf.Clamp01((Temperature - 38f) / (MaximumTemperature - 38f));
-            bool hasEffect = coldAmount > 0f || heatAmount > 0f ||
-                (coldOverlay != null && coldOverlay.enabled) ||
-                (hotOverlay != null && hotOverlay.enabled);
-            if (overlayRoot != null && overlayRoot.activeSelf != hasEffect)
-                overlayRoot.SetActive(hasEffect);
-            if (hasEffect)
+            BodyTemperatureSettings settings = BodyTemperatureSettings.Current;
+            float coldAmount = settings.ColdEnabled ? Mathf.Clamp01((settings.ColdSlowStart - Temperature) /
+                Mathf.Max(.1f, settings.ColdSlowStart - MinimumTemperature)) : 0f;
+            float heatAmount = settings.HeatEnabled ? Mathf.Clamp01((Temperature - settings.HeatSlowStart) /
+                Mathf.Max(.1f, MaximumTemperature - settings.HeatSlowStart)) : 0f;
+            float nauseaAmount = NauseaIntensity * settings.NauseaStrength;
+            bool hasEffect = coldAmount > 0f || heatAmount > 0f || nauseaAmount > 0f ||
+                HasVisibleOverlay(coldOverlay) || HasVisibleOverlay(hotOverlay) ||
+                HasVisibleOverlay(nauseaOverlay);
+            if (!hasEffect)
             {
+                SetOverlayAlpha(coldOverlay, 0f);
+                SetOverlayAlpha(hotOverlay, 0f);
+                SetOverlayAlpha(nauseaOverlay, 0f);
+                if (overlayRoot != null && overlayRoot.activeSelf)
+                    overlayRoot.SetActive(false);
+            }
+            else
+            {
+                if (overlayRoot != null && !overlayRoot.activeSelf)
+                    overlayRoot.SetActive(true);
                 float blend = 1f - Mathf.Exp(-3.5f * Mathf.Max(0f, uiDt));
                 UpdateOverlay(coldOverlay, coldAmount, blend);
                 UpdateOverlay(hotOverlay, heatAmount, blend);
+                float pulse = 0.8f + 0.2f * Mathf.Sin(now * 1.65f);
+                UpdateOverlay(nauseaOverlay, nauseaAmount * pulse * 0.16f, blend);
             }
+            UpdateNauseaDistortion(now, nauseaAmount);
         }
 
         private static void Simulate(Network_Player player, float step, bool inWater, bool underwater)
@@ -199,18 +301,26 @@ namespace xSkills.Systems
             float heatStrain = underwater || inWater ? 0f :
                 Mathf.Clamp((apparentHeat - 41f) * 0.0026f, 0f, 0.065f);
             float cooling = 0f;
-            if (underwater)
+            if (underwater || inWater)
             {
-                float waterTemperature = Mathf.Clamp(outsideTemperature - 1.5f, 23f, 30f);
-                cooling = 0.008f + Mathf.Max(0f, 30f - waterTemperature) * 0.00065f;
+                float waterTemperature = Mathf.Clamp(outsideTemperature - 1.5f, 19f, 30f);
+                float waterCooling = 0.018f + Mathf.Max(0f, 30f - waterTemperature) * 0.0016f;
+                cooling = underwater ? waterCooling : waterCooling * 0.7f;
             }
-            else if (inWater)
-                cooling = 0.0055f;
-            else if (Wetness > 0f)
+            else
             {
-                float evaporation = Mathf.Lerp(1f, 0.28f, Mathf.Clamp01((airHumidity - 55f) / 45f));
-                cooling = Wetness / 100f * 0.009f * evaporation;
-                if (raining) cooling += 0.002f;
+                // Прохладный воздух охлаждает сильнее при намокании и под дождём
+                float airCooling = Mathf.Max(0f, 27f - outsideTemperature) * 0.0035f;
+                if (sheltered) airCooling *= 0.5f;
+                airCooling *= 1f + Wetness / 100f * 0.85f;
+                if (raining && !sheltered) airCooling += 0.004f;
+                cooling += airCooling;
+                if (Wetness > 0f)
+                {
+                    float evaporation = Mathf.Lerp(1f, 0.28f,
+                        Mathf.Clamp01((airHumidity - 55f) / 45f));
+                    cooling += Wetness / 100f * 0.009f * evaporation;
+                }
             }
 
             float fireWarming = fireInfluence * FireWarmingPerSecond *
@@ -239,28 +349,43 @@ namespace xSkills.Systems
         {
             if (GameModeValueManager.IsPlayerInvurnerable || player.Stats == null) return;
             PlayerStats stats = player.Stats;
-            if (Temperature >= 38f && stats.stat_thirst != null && stats.stat_thirst.Normal != null)
+            BodyTemperatureSettings s = BodyTemperatureSettings.Current;
+            if (s.HeatEnabled && Temperature >= 38f &&
+                stats.stat_thirst != null && stats.stat_thirst.Normal != null)
             {
                 float dehydration = (Temperature - 38f) * 0.012f * dt;
                 stats.stat_thirst.RemoveValue(dehydration);
             }
 
-            if (Temperature > 33f && Temperature < 40f)
+            if (!s.DamageEnabled || (!s.ColdEnabled && !s.HeatEnabled))
+            {
+                injuryTimer = 0f;
+                return;
+            }
+            bool cold = s.ColdEnabled && Temperature <= s.ColdDamageStart;
+            bool hot = s.HeatEnabled && Temperature >= s.HeatDamageStart;
+            if (!cold && !hot)
             {
                 injuryTimer = 0f;
                 return;
             }
             injuryTimer += dt;
-            if (injuryTimer < 8f) return;
-            injuryTimer = 0f;
-            float severity = Temperature <= 33f ? 33f - Temperature : Temperature - 40f;
-            float damage = 0.35f + Mathf.Max(0f, severity) * 0.55f;
+            float interval = Mathf.Max(.5f, s.DamageInterval);
+            if (injuryTimer < interval) return;
+            injuryTimer %= interval;
+            float severity = cold ? s.ColdDamageStart - Temperature : Temperature - s.HeatDamageStart;
+            float damage = cold
+                ? s.ColdBaseDamage + severity * s.ColdDamagePerDegree
+                : s.HeatBaseDamage + severity * s.HeatDamagePerDegree;
+            if (damage <= 0f) return;
             stats.Damage(damage, player.transform.position, Vector3.up, EntityType.Environment, false, null);
         }
 
         public static string Command(string[] args)
         {
-            if (!installed || !HasPlayer) return "Enter a world first";
+            bool russian = Localizer.Code == "ru";
+            if (!installed || !HasPlayer)
+                return russian ? "Сначала войдите в игровой мир" : "Enter a world first";
             if (args == null || args.Length == 0) return Status();
             string input = args[0];
             if (string.Equals(input, "bodytemp", StringComparison.OrdinalIgnoreCase))
@@ -270,6 +395,23 @@ namespace xSkills.Systems
             }
             if (string.Equals(input, "get", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(input, "status", StringComparison.OrdinalIgnoreCase)) return Status();
+            if (string.Equals(input, "climate", StringComparison.OrdinalIgnoreCase))
+            {
+                int argument = string.Equals(args[0], "bodytemp", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
+                if (args.Length > argument)
+                {
+                    int previewDay;
+                    if (!int.TryParse(args[argument], NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out previewDay))
+                        return russian ? "Использование: bodytemp climate [игровой день]" :
+                            "Usage: bodytemp climate [game day]";
+                    return WorldEnvironment.ClimateDiagnostic(previewDay);
+                }
+                return WorldEnvironment.CurrentClimateDiagnostic();
+            }
+            if (string.Equals(input, "forecast", StringComparison.OrdinalIgnoreCase))
+                return WorldEnvironment.ClimateForecast();
+            if (string.Equals(input, "effects", StringComparison.OrdinalIgnoreCase)) return Status();
             if (string.Equals(input, "sources", StringComparison.OrdinalIgnoreCase)) return ListHeatSources();
             if (string.Equals(input, "inspect", StringComparison.OrdinalIgnoreCase)) return InspectNearbyBlocks();
             if (string.Equals(input, "reset", StringComparison.OrdinalIgnoreCase))
@@ -279,28 +421,34 @@ namespace xSkills.Systems
                 return Status();
             }
             if (string.Equals(input, "resume", StringComparison.OrdinalIgnoreCase))
-                return Status() + " (simulation is always running)";
+                return Status() + (russian ? " (симуляция всегда работает)" : " (simulation is always running)");
 
             float value;
             if (!float.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
                 !float.TryParse(input, NumberStyles.Float, CultureInfo.CurrentCulture, out value))
-                return "Usage: bodytemp <31..41|get|reset|sources|inspect>";
+                return russian ? "Использование: bodytemp <31..41|get|reset|climate|forecast|sources|inspect>" :
+                    "Usage: bodytemp <31..41|get|reset|climate|forecast|sources|inspect>";
             if (float.IsNaN(value) || float.IsInfinity(value) ||
                 value < MinimumTemperature || value > MaximumTemperature)
-                return "Body temperature must be between 31 and 41 C";
+                return russian ? "Температура тела должна быть от 31 до 41 °C" :
+                    "Body temperature must be between 31 and 41 C";
 
             Temperature = value;
             injuryTimer = 0f;
-            return Status() + " (natural temperature changes are active)";
+            return Status() + (russian ? " (естественное изменение температуры включено)" :
+                " (natural temperature changes are active)");
         }
 
         private static string Status()
         {
-            return "Body: " + Temperature.ToString("0.0", CultureInfo.InvariantCulture) +
-                " C, wet: " + Mathf.RoundToInt(Wetness) + "%, air: " +
-                outsideTemperature.ToString("0.0", CultureInfo.InvariantCulture) +
-                " C, humidity: " + Mathf.RoundToInt(airHumidity) +
-                "%, feels: " + sunHeatIndex.ToString("0.0", CultureInfo.InvariantCulture) + " C";
+            string body = Temperature.ToString("0.0", CultureInfo.InvariantCulture);
+            string wet = Mathf.RoundToInt(Wetness).ToString(CultureInfo.InvariantCulture);
+            string air = outsideTemperature.ToString("0.0", CultureInfo.InvariantCulture);
+            string humidity = Mathf.RoundToInt(airHumidity).ToString(CultureInfo.InvariantCulture);
+            string feels = sunHeatIndex.ToString("0.0", CultureInfo.InvariantCulture);
+            return Localizer.F("bodytemp-status", body, wet, air, humidity, feels,
+                Mathf.RoundToInt(MovementMultiplier * 100f),
+                Localizer.T(NauseaIntensity > 0f ? "bodytemp-nausea-yes" : "bodytemp-nausea-no"));
         }
 
         private static void OnCameraSubmersion(SubmersionState state)
@@ -419,32 +567,36 @@ namespace xSkills.Systems
 
         private static string ListHeatSources()
         {
-            if (currentPlayer == null) return "No local player";
+            bool russian = Localizer.Code == "ru";
+            if (currentPlayer == null) return russian ? "Игрок не найден" : "No local player";
             RefreshHeatSources(currentPlayer);
             nextHeatScan = Time.unscaledTime + HeatScanInterval;
             if (HeatSources.Count == 0)
-                return "No recognized campfire, cooking pot, grill or torch within 10 m";
-            var result = new System.Text.StringBuilder("Nearby heat sources: ");
+                return russian ? "В радиусе 10 м не найдено распознанных костров, котлов, грилей или факелов" :
+                    "No recognized campfire, cooking pot, grill or torch within 10 m";
+            var result = new System.Text.StringBuilder(russian ? "Источники тепла рядом: " : "Nearby heat sources: ");
             int count = 0;
             foreach (HeatSource source in HeatSources)
             {
                 if (count++ >= 7) break;
                 if (count > 1) result.Append("; ");
                 result.Append(source.Block.gameObject.name);
-                result.Append(IsHeatActive(source) ? " [ON]" : " [OFF]");
+                result.Append(IsHeatActive(source) ? (russian ? " [ГОРИТ]" : " [ON]") :
+                    (russian ? " [НЕ ГОРИТ]" : " [OFF]"));
                 result.Append(" ");
                 result.Append(Vector3.Distance(source.Block.transform.position,
                     currentPlayer.transform.position).ToString("0.0", CultureInfo.InvariantCulture));
-                result.Append("m");
+                result.Append(russian ? " м" : "m");
             }
             return result.ToString();
         }
 
         private static string InspectNearbyBlocks()
         {
-            if (currentPlayer == null) return "No local player";
+            bool russian = Localizer.Code == "ru";
+            if (currentPlayer == null) return russian ? "Игрок не найден" : "No local player";
             List<Block> blocks = BlockCreator.GetPlacedBlocks();
-            if (blocks == null) return "No placed blocks";
+            if (blocks == null) return russian ? "Построенные объекты не найдены" : "No placed blocks";
             var nearest = new List<Block>();
             Vector3 position = currentPlayer.transform.position;
             foreach (Block block in blocks)
@@ -458,20 +610,24 @@ namespace xSkills.Systems
             }
             nearest.Sort((a, b) => (a.transform.position - position).sqrMagnitude.CompareTo(
                 (b.transform.position - position).sqrMagnitude));
-            if (nearest.Count == 0) return "No placed objects within 6m";
-            var result = new System.Text.StringBuilder("Objects near player: ");
+            if (nearest.Count == 0) return russian ? "В радиусе 6 м нет установленных объектов" :
+                "No placed objects within 6m";
+            var result = new System.Text.StringBuilder(russian ? "Объекты рядом: " : "Objects near player: ");
             for (int i = 0; i < nearest.Count && i < 8; i++)
             {
                 Block block = nearest[i];
                 if (i > 0) result.Append("; ");
                 result.Append(block.gameObject.name);
                 Fuel fuel = block.GetComponentInChildren<Fuel>(true);
-                if (fuel != null) result.Append(fuel.IsBurning() ? " [FUEL ON]" : " [FUEL OFF]");
-                if (block.GetComponentInChildren<CookingSlot>(true) != null) result.Append(" [COOK]");
+                if (fuel != null) result.Append(fuel.IsBurning() ?
+                    (russian ? " [ТОПЛИВО ГОРИТ]" : " [FUEL ON]") :
+                    (russian ? " [ТОПЛИВО НЕ ГОРИТ]" : " [FUEL OFF]"));
+                if (block.GetComponentInChildren<CookingSlot>(true) != null)
+                    result.Append(russian ? " [ГОТОВКА]" : " [COOK]");
                 result.Append(" ");
                 result.Append(Vector3.Distance(block.transform.position, position)
                     .ToString("0.0", CultureInfo.InvariantCulture));
-                result.Append("m");
+                result.Append(russian ? " м" : "m");
             }
             return result.ToString();
         }
@@ -508,7 +664,89 @@ namespace xSkills.Systems
             UnityEngine.Object.DontDestroyOnLoad(overlayRoot);
             coldOverlay = CreateImage(overlayRoot.transform, "Cold overlay", "cold");
             hotOverlay = CreateImage(overlayRoot.transform, "Heat overlay", "hot");
+            nauseaOverlay = CreateImage(overlayRoot.transform, "Nausea overlay", "hot");
+            nauseaOverlay.color = new Color(0.62f, 0.67f, 0.38f, 0f);
+            CreateNauseaDistortion();
             overlayRoot.SetActive(false);
+        }
+
+        private static void CreateNauseaDistortion()
+        {
+            distortionImages = new RawImage[DistortionBands];
+            for (int i = 0; i < distortionImages.Length; i++)
+            {
+                var go = new GameObject("Nausea wave " + i, typeof(RectTransform), typeof(RawImage));
+                RectTransform rect = (RectTransform)go.transform;
+                rect.SetParent(overlayRoot.transform, false);
+                rect.anchorMin = new Vector2(0f, (float)i / DistortionBands);
+                rect.anchorMax = new Vector2(1f, (float)(i + 1) / DistortionBands);
+                rect.offsetMin = Vector2.zero;
+                rect.offsetMax = Vector2.zero;
+                RawImage image = go.GetComponent<RawImage>();
+                image.color = new Color(1f, 1f, 1f, 0f);
+                image.raycastTarget = false;
+                image.enabled = false;
+                distortionImages[i] = image;
+            }
+        }
+
+        private static void UpdateNauseaDistortion(float now, float amount)
+        {
+            if (distortionImages == null) return;
+            if (!NeedsNauseaCapture || !isInWorld)
+            {
+                StopNauseaCapture();
+                return;
+            }
+            if (nauseaCapture == null)
+            {
+                if (now < nextNauseaCameraCheck) return;
+                nextNauseaCameraCheck = now + 1f;
+                Camera camera = Camera.main;
+                if (camera == null || !camera.isActiveAndEnabled) return;
+                nauseaCapture = camera.gameObject.AddComponent<TemperatureNauseaCapture>();
+            }
+            if (!nauseaCapture.enabled) nauseaCapture.enabled = true;
+            RenderTexture frame = nauseaCapture.CapturedFrame;
+            float strength = Mathf.Clamp01(amount / 1.5f);
+            for (int i = 0; i < distortionImages.Length; i++)
+            {
+                RawImage image = distortionImages[i];
+                if (frame == null)
+                {
+                    image.enabled = false;
+                    continue;
+                }
+                float y = (float)i / DistortionBands;
+                float wave = Mathf.Sin(now * 3.2f + y * 13f) * 0.011f * strength;
+                float drift = Mathf.Sin(now * 1.1f + y * 8f) * 0.003f * strength;
+                if (image.texture != frame) image.texture = frame;
+                image.uvRect = new Rect(wave, y + drift, 1f, 1f / DistortionBands);
+                image.color = new Color(1f, 1f, 1f, 0.68f * strength);
+                image.enabled = true;
+                distortionVisible = true;
+            }
+        }
+
+        private static void StopNauseaCapture()
+        {
+            if (!distortionVisible && nauseaCapture == null) return;
+            distortionVisible = false;
+            if (distortionImages != null)
+                for (int i = 0; i < distortionImages.Length; i++)
+                {
+                    if (distortionImages[i] == null) continue;
+                    distortionImages[i].enabled = false;
+                    distortionImages[i].texture = null;
+                }
+            // Обработчик изображения полностью убирается с игровой камеры после перегрева
+            if (nauseaCapture != null)
+            {
+                nauseaCapture.enabled = false;
+                UnityEngine.Object.Destroy(nauseaCapture);
+                nauseaCapture = null;
+                nextNauseaCameraCheck = Time.unscaledTime + 0.3f;
+            }
         }
 
         private static Image CreateImage(Transform parent, string name, string spriteName)
@@ -532,6 +770,11 @@ namespace xSkills.Systems
             return image;
         }
 
+        private static bool HasVisibleOverlay(Image image)
+        {
+            return image != null && image.enabled && image.color.a > 0.002f;
+        }
+
         private static void UpdateOverlay(Image image, float intensity, float blend)
         {
             if (image == null || (!image.enabled && intensity <= 0f)) return;
@@ -540,15 +783,11 @@ namespace xSkills.Systems
             float alpha = Mathf.Lerp(color.a, intensity * maxAlpha, blend);
             if (intensity <= 0f && alpha < 0.002f)
             {
-                if (color.a != 0f)
-                {
-                    color.a = 0f;
-                    image.color = color;
-                }
-                image.enabled = false;
+                SetOverlayAlpha(image, 0f);
                 return;
             }
-            if (Mathf.Abs(alpha - color.a) < 0.001f) return;
+            // Во время затухания нельзя прекращать обновление из-за маленькой разницы альфы
+            if (intensity > 0f && Mathf.Abs(alpha - color.a) < 0.001f) return;
             if (!image.enabled) image.enabled = true;
             color.a = alpha;
             image.color = color;
@@ -568,8 +807,16 @@ namespace xSkills.Systems
 
         private static void ResetWorldState()
         {
+            StopNauseaCapture();
+            SetOverlayAlpha(coldOverlay, 0f);
+            SetOverlayAlpha(hotOverlay, 0f);
+            SetOverlayAlpha(nauseaOverlay, 0f);
+            if (overlayRoot != null && overlayRoot.activeSelf)
+                overlayRoot.SetActive(false);
+            nextNauseaCameraCheck = 0f;
             currentPlayer = null;
             isInWorld = false;
+            deathLatched = false;
             fullySubmerged = false;
             shaded = false;
             sheltered = false;
@@ -596,13 +843,21 @@ namespace xSkills.Systems
         {
             if (!installed) return;
             PersonController.CameraSubmersionAction -= OnCameraSubmersion;
+            if (movementHarmony != null)
+            {
+                movementHarmony.UnpatchAll(MovementHarmonyId);
+                movementHarmony = null;
+            }
             installed = false;
             ResetWorldState();
+            BodyTemperatureSettings.Flush();
             nextPlayerPoll = 0f;
             if (overlayRoot != null) UnityEngine.Object.Destroy(overlayRoot);
             overlayRoot = null;
             coldOverlay = null;
             hotOverlay = null;
+            nauseaOverlay = null;
+            distortionImages = null;
         }
     }
 }

@@ -123,6 +123,22 @@ namespace xSkills.Skills
             return true;
         }
 
+        public void RestoreProgress(int level, float experience, IDictionary<string, int> tiers)
+        {
+            Level = Math.Max(1, Math.Min(MaxLevel, level));
+            Experience = float.IsNaN(experience) || float.IsInfinity(experience)
+                ? 0f : Math.Max(0f, Math.Min(1000000000f, experience));
+            if (Level >= MaxLevel) Experience = 0f;
+            else Experience = Math.Min(Experience, Math.Max(0f, RequiredExperience - 0.001f));
+            foreach (AbilityData ability in Abilities)
+            {
+                int tier;
+                ability.PreviewTier = tiers != null && tiers.TryGetValue(ability.Id, out tier)
+                    ? Math.Max(0, Math.Min(ability.MaxTier, tier)) : 0;
+            }
+            ClampTiersToLevel();
+        }
+
         private void ClampTiersToLevel()
         {
             int points = Level - 1;
