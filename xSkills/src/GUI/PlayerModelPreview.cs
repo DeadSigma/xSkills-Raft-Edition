@@ -37,6 +37,7 @@ namespace xSkills.GUI
         private Transform turntable;
         private Transform copiedRig;
         private Camera camera;
+        private Light previewLight;
         private RenderTexture texture;
         private Transform sourceRoot;
         private Transform modelRoot;
@@ -148,6 +149,7 @@ namespace xSkills.GUI
                 GameObject lightObject = new GameObject("Character Preview Light");
                 lightObject.transform.SetParent(sceneRoot.transform, false);
                 Light lamp = lightObject.AddComponent<Light>();
+                previewLight = lamp;
                 lamp.type = LightType.Directional;
                 lamp.color = new Color(1f, .93f, .83f, 1f);
                 lamp.intensity = 1.3f;

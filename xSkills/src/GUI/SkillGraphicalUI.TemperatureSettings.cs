@@ -15,6 +15,9 @@ namespace xSkills.GUI
             RectTransform viewport = UIFactory.Rect(panel, "Temperature settings viewport", 8, 5, 625, 694);
             viewport.gameObject.AddComponent<RectMask2D>();
             ScrollRect scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            Image scrollHitbox = UIFactory.Fill(viewport, "Temperature scroll hitbox", 0f, 0f, 625f, 694f,
+                new Color(1f, 1f, 1f, .001f));
+            scrollHitbox.raycastTarget = true;
             scroll.horizontal = false;
             scroll.vertical = true;
             scroll.inertia = false;
