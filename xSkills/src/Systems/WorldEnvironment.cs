@@ -23,33 +23,78 @@ namespace xSkills.Systems
             public string WeatherCode;
         }
 
+        internal struct ThermalSnapshot
+        {
+            public float Temperature;
+            public float RelativeHumidity;
+            public float Daylight;
+            public bool IsRaining;
+        }
+
+        private struct RawEnvironment
+        {
+            public int Day;
+            public DateTime Date;
+            public float Hour;
+            public string WeatherCode;
+            public string NormalizedWeather;
+        }
+
+        private static string lastWeatherCode;
+        private static string lastNormalizedWeather;
+
         internal static bool TryRead(out Snapshot result)
         {
             result = new Snapshot();
+            RawEnvironment raw;
+            if (!TryReadRaw(out raw)) return false;
+
+            int minuteOfDay = Mathf.FloorToInt(raw.Hour * 60f);
+            result.Date = FormatDate(raw.Date);
+            result.Clock = (minuteOfDay / 60).ToString("00") + ":" +
+                (minuteOfDay % 60).ToString("00");
+            result.Weather = FormatWeather(raw.NormalizedWeather);
+            result.WeatherCode = raw.WeatherCode;
+            result.Temperature = CalculateTropicalTemperature(raw.Day, raw.Date.DayOfYear,
+                raw.Hour, raw.NormalizedWeather);
+            result.RelativeHumidity = CalculateTropicalHumidity(raw.Hour, raw.NormalizedWeather);
+            result.Daylight = CalculateDaylight(raw.Hour, raw.NormalizedWeather);
+            return true;
+        }
+
+        internal static bool TryReadThermal(out ThermalSnapshot result)
+        {
+            result = new ThermalSnapshot();
+            RawEnvironment raw;
+            if (!TryReadRaw(out raw)) return false;
+
+            result.Temperature = CalculateTropicalTemperature(raw.Day, raw.Date.DayOfYear,
+                raw.Hour, raw.NormalizedWeather);
+            result.RelativeHumidity = CalculateTropicalHumidity(raw.Hour, raw.NormalizedWeather);
+            result.Daylight = CalculateDaylight(raw.Hour, raw.NormalizedWeather);
+            string weather = raw.NormalizedWeather;
+            result.IsRaining = weather.Contains("rain") || weather.Contains("storm") ||
+                weather.Contains("thunder") || weather.Contains("drizzle");
+            return true;
+        }
+
+        private static bool TryReadRaw(out RawEnvironment result)
+        {
+            result = new RawEnvironment();
             if (!Raft_Network.WorldHasBeenRecieved) return false;
 
             AzureSkyController sky = ComponentManager<AzureSkyController>.Value;
             WeatherManager weatherManager = ComponentManager<WeatherManager>.Value;
             if (sky == null || weatherManager == null) return false;
 
-            // Состояние считывается из Raft, которое уже синхронизирует хост
-            float hour = Mathf.Repeat(sky.timeOfDay.hour, HoursPerDay);
-            int minuteOfDay = Mathf.FloorToInt(hour * 60f);
+            result.Hour = Mathf.Repeat(sky.timeOfDay.hour, HoursPerDay);
             int day = Math.Max(0, WorldManager.DayCounter);
             if (day > (DateTime.MaxValue - CalendarEpoch).Days)
                 day = (DateTime.MaxValue - CalendarEpoch).Days;
-            DateTime date = CalendarEpoch.AddDays(day);
-
-            result.Date = FormatDate(date);
-            result.Clock = (minuteOfDay / 60).ToString("00") + ":" +
-                (minuteOfDay % 60).ToString("00");
-
-            string weatherCode = GetWeatherCode(weatherManager);
-            result.Weather = FormatWeather(weatherCode);
-            result.WeatherCode = weatherCode;
-            result.Temperature = CalculateTropicalTemperature(day, date.DayOfYear, hour, weatherCode);
-            result.RelativeHumidity = CalculateTropicalHumidity(hour, weatherCode);
-            result.Daylight = CalculateDaylight(hour, weatherCode);
+            result.Day = day;
+            result.Date = CalendarEpoch.AddDays(day);
+            result.WeatherCode = GetWeatherCode(weatherManager);
+            result.NormalizedWeather = NormalizeWeatherCode(result.WeatherCode);
             return true;
         }
 
@@ -78,16 +123,20 @@ namespace xSkills.Systems
         private static string NormalizeWeatherCode(string code)
         {
             if (string.IsNullOrEmpty(code)) return string.Empty;
+            if (string.Equals(code, lastWeatherCode, StringComparison.Ordinal))
+                return lastNormalizedWeather;
             char[] buffer = new char[code.Length];
             int count = 0;
             foreach (char c in code)
                 if (char.IsLetterOrDigit(c)) buffer[count++] = char.ToLowerInvariant(c);
-            return new string(buffer, 0, count);
+            lastWeatherCode = code;
+            lastNormalizedWeather = new string(buffer, 0, count);
+            return lastNormalizedWeather;
         }
 
         private static string FormatWeather(string code)
         {
-            string weather = NormalizeWeatherCode(code);
+            string weather = code;
 
             if (weather.Contains("thunder") || weather.Contains("storm"))
                 return Localizer.T("weather-storm");
@@ -141,7 +190,7 @@ namespace xSkills.Systems
             float middayVariation = Mathf.Sin(phase * 2f + 0.4f) * 0.55f *
                 (0.4f + DailyNoise(day, 71));
 
-            string weather = NormalizeWeatherCode(code);
+            string weather = code;
             float precipitation = 0f;
             if (weather.Contains("storm") || weather.Contains("thunder"))
                 precipitation = 3.8f;
@@ -158,7 +207,7 @@ namespace xSkills.Systems
         {
             float sunlight = Mathf.Max(0f, Mathf.Sin((hour - 6f) / 12f * Mathf.PI));
             float humidity = Mathf.Lerp(88f, 70f, sunlight);
-            string weather = NormalizeWeatherCode(code);
+            string weather = code;
             if (weather.Contains("storm") || weather.Contains("thunder") ||
                 weather.Contains("rain") || weather.Contains("drizzle"))
                 humidity = Mathf.Max(humidity, 94f);
@@ -170,7 +219,7 @@ namespace xSkills.Systems
         private static float CalculateDaylight(float hour, string code)
         {
             float sunlight = Mathf.Max(0f, Mathf.Sin((hour - 6f) / 12f * Mathf.PI));
-            string weather = NormalizeWeatherCode(code);
+            string weather = code;
             if (weather.Contains("storm") || weather.Contains("thunder")) return sunlight * 0.12f;
             if (weather.Contains("rain") || weather.Contains("drizzle")) return sunlight * 0.22f;
             if (weather.Contains("cloud") || weather.Contains("fog") || weather.Contains("mist"))

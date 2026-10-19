@@ -21,6 +21,10 @@ namespace xSkills.Systems
         private const float FireWarmingPerSecond = 0.050f;
         private const float FireExtraDryingPerSecond = 0.85f;
         private const float HeatScanInterval = 8f;
+        private const float SimulationInterval = 0.2f;
+        private const float PlayerPollInterval = 0.5f;
+        private const float ClassificationCacheLifetime = 120f;
+        private const int MaximumClassifiedBlocks = 4096;
 
         private sealed class HeatSource
         {
@@ -33,12 +37,19 @@ namespace xSkills.Systems
         }
 
         private static readonly List<HeatSource> HeatSources = new List<HeatSource>();
+        private static readonly Dictionary<Block, HeatSource> CachedHeatSources =
+            new Dictionary<Block, HeatSource>();
+        private static readonly HashSet<Block> CachedNonHeatBlocks = new HashSet<Block>();
         private static float nextHeatScan;
+        private static float nextClassificationReset;
+        private static float nextPlayerPoll;
+        private static float simulationTime;
         private static float nextWeatherCheck;
         private static float nextShadeCheck;
         private static float outsideTemperature = 26f;
         private static float airHumidity = 80f;
         private static float daylight;
+        private static float airHeatIndex = 26f;
         private static float injuryTimer;
         private static float sunHeatIndex;
         private static bool raining;
@@ -68,117 +79,147 @@ namespace xSkills.Systems
         public static void Tick(float dt, float uiDt)
         {
             if (!installed) return;
-            Network_Player player = null;
-            try
-            {
-                if (RAPI.IsCurrentSceneGame() && Raft_Network.WorldHasBeenRecieved)
-                    player = RAPI.GetLocalPlayer();
-            }
-            catch (Exception) { }
 
-            if (player == null || !player.IsLocalPlayer)
+            // Игрок и состояние сцены проверяются не каждый кадр
+            float now = Time.unscaledTime;
+            if (now >= nextPlayerPoll)
+            {
+                nextPlayerPoll = now + PlayerPollInterval;
+                Network_Player localPlayer = null;
+                try
+                {
+                    if (RAPI.IsCurrentSceneGame() && Raft_Network.WorldHasBeenRecieved)
+                        localPlayer = RAPI.GetLocalPlayer();
+                }
+                catch (Exception) { }
+
+                if (localPlayer == null || !localPlayer.IsLocalPlayer)
+                {
+                    if (isInWorld) ResetWorldState();
+                }
+                else if (currentPlayer != localPlayer)
+                {
+                    ResetWorldState();
+                    currentPlayer = localPlayer;
+                    isInWorld = true;
+                }
+            }
+
+            Network_Player player = currentPlayer;
+            if (!isInWorld || player == null)
             {
                 if (isInWorld) ResetWorldState();
-                SetOverlayAlpha(coldOverlay, 0f);
-                SetOverlayAlpha(hotOverlay, 0f);
-                if (overlayRoot != null && overlayRoot.activeSelf) overlayRoot.SetActive(false);
+                if (overlayRoot != null && overlayRoot.activeSelf)
+                {
+                    SetOverlayAlpha(coldOverlay, 0f);
+                    SetOverlayAlpha(hotOverlay, 0f);
+                    overlayRoot.SetActive(false);
+                }
                 return;
             }
 
-            if (currentPlayer != player)
-            {
-                ResetWorldState();
-                currentPlayer = player;
-                isInWorld = true;
-            }
-
-            if (overlayRoot != null && !overlayRoot.activeSelf) overlayRoot.SetActive(true);
-            float step = Mathf.Clamp(dt, 0f, 0.25f);
             PersonController controller = player.PersonController;
             bool inWater = controller != null && controller.controllerType == ControllerType.Water;
-            bool underwater = controller != null && controller.SubmersionState == SubmersionState.Full;
-            underwater |= fullySubmerged;
+            bool underwater = (controller != null && controller.SubmersionState == SubmersionState.Full) ||
+                fullySubmerged;
 
-            if (Time.unscaledTime >= nextWeatherCheck)
+            if (now >= nextWeatherCheck)
             {
-                nextWeatherCheck = Time.unscaledTime + 1f;
-                WorldEnvironment.Snapshot environment;
-                if (WorldEnvironment.TryRead(out environment))
+                nextWeatherCheck = now + 1f;
+                WorldEnvironment.ThermalSnapshot environment;
+                if (WorldEnvironment.TryReadThermal(out environment))
                 {
                     outsideTemperature = environment.Temperature;
                     airHumidity = environment.RelativeHumidity;
                     daylight = environment.Daylight;
-                    string weather = (environment.WeatherCode ?? "").ToLowerInvariant();
-                    raining = weather.Contains("rain") || weather.Contains("storm") ||
-                        weather.Contains("thunder") || weather.Contains("drizzle");
+                    raining = environment.IsRaining;
+                    airHeatIndex = CalculateHeatIndex(outsideTemperature, airHumidity);
                 }
             }
 
-            if (Time.unscaledTime >= nextShadeCheck)
+            if (now >= nextShadeCheck)
             {
-                nextShadeCheck = Time.unscaledTime + 0.8f;
+                nextShadeCheck = now + 0.8f;
                 sheltered = IsUnderShelter(player);
-                shaded = CheckShade(player);
+                shaded = CheckShade(player, sheltered);
             }
 
-            float fireInfluence = !underwater && !inWater ? GetFireInfluence(player) : 0f;
-            if (underwater)
-                Wetness = 100f;
-            else if (inWater)
-                Wetness = Mathf.Max(Wetness, PartialWetness);
-            else if (raining && !sheltered)
-                Wetness = Mathf.Max(Wetness, Mathf.Min(85f, Wetness + 0.18f * step));
-            else
+            // Полное погружение намокает сразу, остальные значения обновляются реже
+            if (underwater) Wetness = 100f;
+            else if (inWater) Wetness = Mathf.Max(Wetness, PartialWetness);
+
+            simulationTime += Mathf.Clamp(dt, 0f, 0.25f);
+            if (simulationTime >= SimulationInterval)
             {
-                float airDrying = airHumidity >= 90f ? 0.55f : (daylight > 0.25f && !shaded ? 1.45f : 1f);
-                Wetness = Mathf.Max(0f, Wetness -
-                    (DryingPerSecond * airDrying + FireExtraDryingPerSecond * fireInfluence) * step);
-            }
-
-            if (step > 0f && (player.PlayerScript == null || !player.PlayerScript.IsDead))
-            {
-                // Тело удерживает внутреннюю температуру, даже если воздух жарче или холоднее
-                float regulation = (NormalTemperature - Temperature) *
-                    (Temperature >= NormalTemperature ? 0.013f : 0.008f);
-                regulation = Mathf.Clamp(regulation, -0.075f, 0.045f);
-
-                float heatIndex = CalculateHeatIndex(outsideTemperature, airHumidity);
-                float sunHeat = shaded || underwater || inWater ? 0f : 5.5f * daylight;
-                float apparentHeat = heatIndex + sunHeat;
-                sunHeatIndex = apparentHeat;
-
-                // Во влажном воздухе испарение пота затрудняется - нагрузка растёт на солнце
-                float heatStrain = underwater || inWater ? 0f :
-                    Mathf.Clamp((apparentHeat - 41f) * 0.0026f, 0f, 0.065f);
-                float cooling = 0f;
-                if (underwater)
-                {
-                    float waterTemperature = Mathf.Clamp(outsideTemperature - 1.5f, 23f, 30f);
-                    cooling = 0.008f + Mathf.Max(0f, 30f - waterTemperature) * 0.00065f;
-                }
-                else if (inWater)
-                    cooling = 0.0055f;
-                else if (Wetness > 0f)
-                {
-                    float evaporation = Mathf.Lerp(1f, 0.28f, Mathf.Clamp01((airHumidity - 55f) / 45f));
-                    cooling = Wetness / 100f * 0.009f * evaporation;
-                    if (raining) cooling += 0.002f;
-                }
-
-                float fireWarming = fireInfluence * FireWarmingPerSecond *
-                    (Temperature < NormalTemperature ? 1f : 0.25f);
-                Temperature = Mathf.Clamp(Temperature +
-                    (regulation + heatStrain + fireWarming - cooling) * step,
-                    MinimumTemperature, MaximumTemperature);
-
-                ApplyHealthConsequences(player, step);
+                float step = simulationTime;
+                simulationTime = 0f;
+                Simulate(player, step, inWater, underwater);
             }
 
             float coldAmount = Mathf.Clamp01((35f - Temperature) / (35f - MinimumTemperature));
             float heatAmount = Mathf.Clamp01((Temperature - 38f) / (MaximumTemperature - 38f));
-            float blend = 1f - Mathf.Exp(-3.5f * Mathf.Max(0f, uiDt));
-            UpdateOverlay(coldOverlay, coldAmount, blend, true);
-            UpdateOverlay(hotOverlay, heatAmount, blend, false);
+            bool hasEffect = coldAmount > 0f || heatAmount > 0f ||
+                (coldOverlay != null && coldOverlay.enabled) ||
+                (hotOverlay != null && hotOverlay.enabled);
+            if (overlayRoot != null && overlayRoot.activeSelf != hasEffect)
+                overlayRoot.SetActive(hasEffect);
+            if (hasEffect)
+            {
+                float blend = 1f - Mathf.Exp(-3.5f * Mathf.Max(0f, uiDt));
+                UpdateOverlay(coldOverlay, coldAmount, blend);
+                UpdateOverlay(hotOverlay, heatAmount, blend);
+            }
+        }
+
+        private static void Simulate(Network_Player player, float step, bool inWater, bool underwater)
+        {
+            float fireInfluence = !underwater && !inWater ? GetFireInfluence(player) : 0f;
+            if (!underwater && !inWater)
+            {
+                if (raining && !sheltered)
+                    Wetness = Mathf.Max(Wetness, Mathf.Min(85f, Wetness + 0.18f * step));
+                else
+                {
+                    float airDrying = airHumidity >= 90f ? 0.55f : (daylight > 0.25f && !shaded ? 1.45f : 1f);
+                    Wetness = Mathf.Max(0f, Wetness -
+                        (DryingPerSecond * airDrying + FireExtraDryingPerSecond * fireInfluence) * step);
+                }
+            }
+
+            if (player.PlayerScript != null && player.PlayerScript.IsDead) return;
+
+            float regulation = (NormalTemperature - Temperature) *
+                (Temperature >= NormalTemperature ? 0.013f : 0.008f);
+            regulation = Mathf.Clamp(regulation, -0.075f, 0.045f);
+
+            float sunHeat = shaded || underwater || inWater ? 0f : 5.5f * daylight;
+            float apparentHeat = airHeatIndex + sunHeat;
+            sunHeatIndex = apparentHeat;
+
+            float heatStrain = underwater || inWater ? 0f :
+                Mathf.Clamp((apparentHeat - 41f) * 0.0026f, 0f, 0.065f);
+            float cooling = 0f;
+            if (underwater)
+            {
+                float waterTemperature = Mathf.Clamp(outsideTemperature - 1.5f, 23f, 30f);
+                cooling = 0.008f + Mathf.Max(0f, 30f - waterTemperature) * 0.00065f;
+            }
+            else if (inWater)
+                cooling = 0.0055f;
+            else if (Wetness > 0f)
+            {
+                float evaporation = Mathf.Lerp(1f, 0.28f, Mathf.Clamp01((airHumidity - 55f) / 45f));
+                cooling = Wetness / 100f * 0.009f * evaporation;
+                if (raining) cooling += 0.002f;
+            }
+
+            float fireWarming = fireInfluence * FireWarmingPerSecond *
+                (Temperature < NormalTemperature ? 1f : 0.25f);
+            Temperature = Mathf.Clamp(Temperature +
+                (regulation + heatStrain + fireWarming - cooling) * step,
+                MinimumTemperature, MaximumTemperature);
+
+            ApplyHealthConsequences(player, step);
         }
 
         private static float CalculateHeatIndex(float celsius, float humidity)
@@ -278,9 +319,9 @@ namespace xSkills.Systems
             float maxInfluence = 0f;
             foreach (HeatSource source in HeatSources)
             {
-                if (!IsHeatActive(source)) continue;
+                if (source.Block == null) continue;
                 float sqrDistance = (source.Block.transform.position - position).sqrMagnitude;
-                if (sqrDistance >= source.Radius * source.Radius) continue;
+                if (sqrDistance >= source.Radius * source.Radius || !IsHeatActive(source)) continue;
                 float proximity = 1f - Mathf.Sqrt(sqrDistance) / source.Radius;
                 maxInfluence = Mathf.Max(maxInfluence, proximity * source.Strength);
             }
@@ -301,6 +342,15 @@ namespace xSkills.Systems
             HeatSources.Clear();
             try
             {
+                float now = Time.unscaledTime;
+                if (now >= nextClassificationReset ||
+                    CachedHeatSources.Count + CachedNonHeatBlocks.Count >= MaximumClassifiedBlocks)
+                {
+                    CachedHeatSources.Clear();
+                    CachedNonHeatBlocks.Clear();
+                    nextClassificationReset = now + ClassificationCacheLifetime;
+                }
+
                 List<Block> blocks = BlockCreator.GetPlacedBlocks();
                 if (blocks == null) return;
                 Vector3 position = player.transform.position;
@@ -308,41 +358,63 @@ namespace xSkills.Systems
                 {
                     if (block == null || (block.transform.position - position).sqrMagnitude > 100f)
                         continue;
-                    if (block is Block_CookingStand_Electric || block is Block_CookingStand_Smelter)
-                        continue;
-
-                    string name = block.gameObject.name.ToLowerInvariant();
-                    bool torch = name.Contains("torch") || name.Contains("brazier");
-                    bool cooking = block is Block_CookingStand || name.Contains("cooking") ||
-                        name.Contains("cookpot") || name.Contains("grill") ||
-                        name.Contains("campfire") || name.Contains("fireplace") ||
-                        name.Contains("bonfire") || name.Contains("stove");
-                    if (!torch && !cooking)
-                        cooking = block.GetComponentInChildren<CookingSlot>(true) != null;
-                    if (!torch && !cooking) continue;
-
-                    Fuel fuel = null;
-                    Block_CookingStand stand = block as Block_CookingStand;
-                    if (stand != null) fuel = stand.fuel;
-                    if (fuel == null) fuel = block.GetComponentInChildren<Fuel>(true);
-                    ParticleSystem flame = !torch && fuel == null ?
-                        block.GetComponentInChildren<ParticleSystem>(true) : null;
-                    if (fuel == null && !torch && flame == null) continue;
-                    HeatSources.Add(new HeatSource
+                    HeatSource source;
+                    if (CachedHeatSources.TryGetValue(block, out source))
                     {
-                        Block = block,
-                        Fuel = fuel,
-                        CookingFlame = flame,
-                        IsTorch = torch,
-                        Radius = torch ? TorchRadius : HeatRadius,
-                        Strength = torch ? 0.26f : 1f
-                    });
+                        HeatSources.Add(source);
+                        continue;
+                    }
+                    if (CachedNonHeatBlocks.Contains(block)) continue;
+
+                    source = ClassifyHeatSource(block);
+                    if (source == null)
+                        CachedNonHeatBlocks.Add(block);
+                    else
+                    {
+                        CachedHeatSources.Add(block, source);
+                        HeatSources.Add(source);
+                    }
                 }
             }
             catch (Exception)
             {
                 HeatSources.Clear();
+                CachedHeatSources.Clear();
+                CachedNonHeatBlocks.Clear();
             }
+        }
+
+        private static HeatSource ClassifyHeatSource(Block block)
+        {
+            if (block is Block_CookingStand_Electric || block is Block_CookingStand_Smelter)
+                return null;
+
+            string name = block.gameObject.name.ToLowerInvariant();
+            bool torch = name.Contains("torch") || name.Contains("brazier");
+            bool cooking = block is Block_CookingStand || name.Contains("cooking") ||
+                name.Contains("cookpot") || name.Contains("grill") ||
+                name.Contains("campfire") || name.Contains("fireplace") ||
+                name.Contains("bonfire") || name.Contains("stove");
+            if (!torch && !cooking)
+                cooking = block.GetComponentInChildren<CookingSlot>(true) != null;
+            if (!torch && !cooking) return null;
+
+            Fuel fuel = null;
+            Block_CookingStand stand = block as Block_CookingStand;
+            if (stand != null) fuel = stand.fuel;
+            if (fuel == null) fuel = block.GetComponentInChildren<Fuel>(true);
+            ParticleSystem flame = !torch && fuel == null ?
+                block.GetComponentInChildren<ParticleSystem>(true) : null;
+            if (fuel == null && !torch && flame == null) return null;
+            return new HeatSource
+            {
+                Block = block,
+                Fuel = fuel,
+                CookingFlame = flame,
+                IsTorch = torch,
+                Radius = torch ? TorchRadius : HeatRadius,
+                Strength = torch ? 0.26f : 1f
+            };
         }
 
         private static string ListHeatSources()
@@ -412,12 +484,12 @@ namespace xSkills.Systems
                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
         }
 
-        private static bool CheckShade(Network_Player player)
+        private static bool CheckShade(Network_Player player, bool underShelter)
         {
             if (daylight < 0.02f) return true;
             Light sun = RenderSettings.sun;
             if (sun == null || !sun.isActiveAndEnabled || sun.intensity <= 0f)
-                return IsUnderShelter(player);
+                return underShelter;
             Vector3 toSun = -sun.transform.forward;
             if (Vector3.Dot(toSun, Vector3.up) < 0.1f) return true;
             Transform eye = player.CameraTransform;
@@ -453,17 +525,32 @@ namespace xSkills.Systems
             image.sprite = ResourceLoader.Sprite("effects", spriteName);
             image.type = Image.Type.Simple;
             image.preserveAspect = false;
-            image.color = new Color(1f, 1f, 1f, 0f);
+            image.color = image.sprite != null ? new Color(1f, 1f, 1f, 0f) :
+                spriteName == "cold" ? new Color(0.23f, 0.55f, 1f, 0f) :
+                new Color(1f, 0.28f, 0.08f, 0f);
+            image.enabled = false;
             return image;
         }
 
-        private static void UpdateOverlay(Image image, float intensity, float blend, bool cold)
+        private static void UpdateOverlay(Image image, float intensity, float blend)
         {
-            if (image == null) return;
+            if (image == null || (!image.enabled && intensity <= 0f)) return;
             float maxAlpha = image.sprite != null ? 0.88f : 0.16f;
-            Color color = image.sprite != null ? Color.white :
-                (cold ? new Color(0.23f, 0.55f, 1f, 1f) : new Color(1f, 0.28f, 0.08f, 1f));
-            color.a = Mathf.Lerp(image.color.a, intensity * maxAlpha, blend);
+            Color color = image.color;
+            float alpha = Mathf.Lerp(color.a, intensity * maxAlpha, blend);
+            if (intensity <= 0f && alpha < 0.002f)
+            {
+                if (color.a != 0f)
+                {
+                    color.a = 0f;
+                    image.color = color;
+                }
+                image.enabled = false;
+                return;
+            }
+            if (Mathf.Abs(alpha - color.a) < 0.001f) return;
+            if (!image.enabled) image.enabled = true;
+            color.a = alpha;
             image.color = color;
         }
 
@@ -471,8 +558,12 @@ namespace xSkills.Systems
         {
             if (image == null) return;
             Color color = image.color;
-            color.a = alpha;
-            image.color = color;
+            if (color.a != alpha)
+            {
+                color.a = alpha;
+                image.color = color;
+            }
+            if (alpha <= 0f && image.enabled) image.enabled = false;
         }
 
         private static void ResetWorldState()
@@ -491,6 +582,11 @@ namespace xSkills.Systems
             injuryTimer = 0f;
             sunHeatIndex = 26f;
             HeatSources.Clear();
+            CachedHeatSources.Clear();
+            CachedNonHeatBlocks.Clear();
+            nextClassificationReset = 0f;
+            simulationTime = 0f;
+            airHeatIndex = 26f;
             nextHeatScan = 0f;
             nextShadeCheck = 0f;
             nextWeatherCheck = 0f;
@@ -502,6 +598,7 @@ namespace xSkills.Systems
             PersonController.CameraSubmersionAction -= OnCameraSubmersion;
             installed = false;
             ResetWorldState();
+            nextPlayerPoll = 0f;
             if (overlayRoot != null) UnityEngine.Object.Destroy(overlayRoot);
             overlayRoot = null;
             coldOverlay = null;
