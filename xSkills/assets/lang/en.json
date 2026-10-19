@@ -165,5 +165,8 @@
   "settings-diet-bonus-rule": "Diet bonus health is added to normal maximum health and stretches the main HP bar. Bonus health from drinks is still shown as a separate segment on the right and stacks with diet health",
   "settings-diet-max-bonus": "Maximum total HP bonus from diet",
   "settings-diet-daily-loss": "Diet loss each day",
-  "settings-diet-death-loss": "Diet loss on death"
+  "settings-diet-death-loss": "Diet loss on death",
+  "ui-home-wet-slight": "Slightly wet",
+  "ui-home-wet": "Wet",
+  "ui-home-wet-soaked": "Soaked"
 }

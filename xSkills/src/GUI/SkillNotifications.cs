@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using xSkills.Skills;
 
+using xSkills.Services;
 namespace xSkills.GUI
 {
     // HUD работает и при закрытом меню навыков

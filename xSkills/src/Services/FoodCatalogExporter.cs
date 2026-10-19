@@ -8,7 +8,7 @@ using System.Reflection;
 using System.Text;
 using UnityEngine;
 
-namespace xSkills.GUI
+namespace xSkills.Services
 {
     internal static class FoodCatalogExporter
     {

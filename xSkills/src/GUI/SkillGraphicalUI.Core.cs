@@ -6,6 +6,8 @@ using UnityEngine.UI;
 using HMLLibrary;
 using xSkills.Skills;
 
+using xSkills.Services;
+using xSkills.Systems;
 namespace xSkills.GUI
 {
     internal sealed partial class SkillGraphicalUI : IDisposable

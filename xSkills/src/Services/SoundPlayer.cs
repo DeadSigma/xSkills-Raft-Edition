@@ -5,7 +5,7 @@ using System.IO;
 using UnityEngine;
 using UnityEngine.Networking;
 
-namespace xSkills.GUI
+namespace xSkills.Services
 {
     internal sealed class SoundPlayer : MonoBehaviour
     {

@@ -4,6 +4,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using HMLLibrary;
 
+using xSkills.Services;
+using xSkills.Systems;
 namespace xSkills.GUI
 {
     internal sealed partial class SkillGraphicalUI
@@ -19,6 +21,8 @@ namespace xSkills.GUI
         private Text healthText;
         private Text hungerText;
         private Text thirstText;
+        private Text bodyTemperatureText;
+        private Text wetnessText;
         private Text homeDateText;
         private Text homeClockText;
         private Text homeTemperatureText;
@@ -63,9 +67,9 @@ namespace xSkills.GUI
                 Localizer.T("ui-home-preview-satiety"), null, right, 409);
             thirstText = HomePhysicalRow("Thirst", Localizer.T("ui-thirst"),
                 Localizer.T("ui-home-preview-thirst"), null, right, 466);
-            HomePhysicalRow("Body temperature", Localizer.T("ui-home-body-temperature"),
-                "37.0 °C", null, right, 523);
-            HomePhysicalRow("Wetness", Localizer.T("ui-home-wetness"),
+            bodyTemperatureText = HomePhysicalRow("Body temperature", Localizer.T("ui-home-body-temperature"),
+                "36.6 °C", null, right, 523);
+            wetnessText = HomePhysicalRow("Wetness", Localizer.T("ui-home-wetness"),
                 Localizer.T("ui-home-dry"), null, right, 580);
             HomePhysicalRow("Walk speed", Localizer.T("ui-home-walk-speed"),
                 "100%", "+10%", right, 637);
@@ -234,7 +238,7 @@ namespace xSkills.GUI
 
             homeDateText.text = state.Date;
             homeClockText.text = state.Clock;
-            homeTemperatureText.text = state.Temperature.ToString("0") + " °C";
+            homeTemperatureText.text = state.Temperature.ToString("0.0") + " °C";
             homeWeatherText.text = state.Weather;
         }
 
@@ -256,6 +260,7 @@ namespace xSkills.GUI
             RefreshConsumable(stats != null ? stats.stat_hunger : null, hungerText);
             RefreshConsumable(stats != null ? stats.stat_thirst : null, thirstText);
             RefreshHomeDiet();
+            RefreshHomeTemperature();
 
             if (!playerPreviewAttempted ||
                 ((playerPreview == null || !playerPreview.Available) && Time.unscaledTime >= nextPlayerPreviewRetryAt))
@@ -275,6 +280,18 @@ namespace xSkills.GUI
                     playerPreviewFallback.gameObject.SetActive(true);
                 }
             }
+        }
+
+        private void RefreshHomeTemperature()
+        {
+            if (bodyTemperatureText != null)
+                bodyTemperatureText.text = BodyTemperatureSystem.Temperature.ToString("0.0") + " °C";
+            if (wetnessText == null) return;
+
+            float amount = BodyTemperatureSystem.Wetness;
+            string key = amount < 1f ? "ui-home-dry" : amount < 55f ? "ui-home-wet-slight" :
+                amount < 95f ? "ui-home-wet" : "ui-home-wet-soaked";
+            wetnessText.text = Mathf.RoundToInt(amount) + "% - " + Localizer.T(key);
         }
 
         private static string GetPlayerDisplayName(Network_Player player)
@@ -384,6 +401,8 @@ namespace xSkills.GUI
             healthText = null;
             hungerText = null;
             thirstText = null;
+            bodyTemperatureText = null;
+            wetnessText = null;
             homeDateText = null;
             homeClockText = null;
             homeTemperatureText = null;

@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
+using xSkills.Services;
 namespace xSkills.GUI
 {
     internal static class UIFactory

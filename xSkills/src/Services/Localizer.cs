@@ -7,7 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
 
-namespace xSkills.GUI
+namespace xSkills.Services
 {
     internal static class Localizer
     {

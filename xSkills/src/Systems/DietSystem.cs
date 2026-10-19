@@ -5,7 +5,7 @@ using HarmonyLib;
 using HMLLibrary;
 using UnityEngine;
 
-namespace xSkills.GUI
+namespace xSkills.Systems
 {
     // Диета привязана к миру и локальному игроку
     internal static class DietSystem

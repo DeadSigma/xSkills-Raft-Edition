@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
+using xSkills.Services;
 namespace xSkills.GUI
 {
     // Оригинальные atlas-координаты scarab/scarab_small из xSkillsGilded

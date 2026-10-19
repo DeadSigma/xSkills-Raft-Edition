@@ -5,6 +5,8 @@ using RaftModLoader;
 using xSkills.GUI;
 using xSkills.Skills;
 
+using xSkills.Services;
+using xSkills.Systems;
 namespace xSkills
 {
     public sealed class XSkills : Mod
@@ -20,6 +22,7 @@ namespace xSkills
 
             ResourceLoader.Configure(this);
             SoundPlayer.Initialize();
+            BodyTemperatureSystem.Initialize();
             ui = new SkillGraphicalUI();
             ui.Initialize();
             notifications = SkillNotifications.Create();
@@ -30,6 +33,7 @@ namespace xSkills
         public void Update()
         {
             NativeSkillHotkey.Tick();
+            BodyTemperatureSystem.Tick(Time.deltaTime, Time.unscaledDeltaTime);
             if (ui == null) return;
             if (NativeSkillHotkey.WasPressed())
             {
@@ -68,6 +72,12 @@ namespace xSkills
             return ExecuteCommand("unlearnpoints", args, AdminCommands.UnlearnPoints);
         }
 
+        [ConsoleCommand("bodytemp", "Set local body temperature (31-41 C)")]
+        public static string BodyTemperatureCommand(string[] args)
+        {
+            return ExecuteCommand("bodytemp", args, BodyTemperatureSystem.Command);
+        }
+
         private static string ExecuteCommand(string name, string[] args, Func<string[], string> handler)
         {
             try
@@ -88,6 +98,7 @@ namespace xSkills
             if (notifications != null) notifications.Dispose();
             notifications = null;
             NativeSkillHotkey.Uninstall();
+            BodyTemperatureSystem.Dispose();
             SoundPlayer.Shutdown();
             Localizer.Reset();
             ResourceLoader.Clear();

@@ -2,7 +2,8 @@ using System;
 using UnityEngine;
 using UnityEngine.AzureSky;
 
-namespace xSkills.GUI
+using xSkills.Services;
+namespace xSkills.Systems
 {
     internal static class WorldEnvironment
     {
@@ -17,6 +18,9 @@ namespace xSkills.GUI
             public string Clock;
             public string Weather;
             public float Temperature;
+            public float RelativeHumidity;
+            public float Daylight;
+            public string WeatherCode;
         }
 
         internal static bool TryRead(out Snapshot result)
@@ -42,7 +46,10 @@ namespace xSkills.GUI
 
             string weatherCode = GetWeatherCode(weatherManager);
             result.Weather = FormatWeather(weatherCode);
-            result.Temperature = CalculateTropicalTemperature(date.DayOfYear, hour, weatherCode);
+            result.WeatherCode = weatherCode;
+            result.Temperature = CalculateTropicalTemperature(day, date.DayOfYear, hour, weatherCode);
+            result.RelativeHumidity = CalculateTropicalHumidity(hour, weatherCode);
+            result.Daylight = CalculateDaylight(hour, weatherCode);
             return true;
         }
 
@@ -120,22 +127,69 @@ namespace xSkills.GUI
             return Localizer.T("weather-small-waves");
         }
 
-        private static float CalculateTropicalTemperature(int dayOfYear, float hour, string code)
+        private static float CalculateTropicalTemperature(int day, int dayOfYear, float hour, string code)
         {
-            // Пик тепла днём, а минимум - после полуночи
-            float dayCycle = Mathf.Cos((hour - 14f) / HoursPerDay * FullCircle) * 3f;
-            // Тропическая зима отличается от лета лишь на несколько градусов
-            float yearCycle = Mathf.Cos((dayOfYear - 205f) / 365.25f * FullCircle) * 2.4f;
-            float precipitation = 0f;
-            string weather = (code ?? string.Empty).ToLowerInvariant();
-            if (weather.Contains("storm") || weather.Contains("thunder"))
-                precipitation = 3f;
-            else if (weather.Contains("rain"))
-                precipitation = 2f;
-            else if (weather.Contains("cloud") || weather.Contains("fog"))
-                precipitation = 0.8f;
+            // Суточные изменения и погодные колебания зависят от игрового дня
+            float phase = (hour - 14f) / HoursPerDay * FullCircle;
+            float amplitude = Mathf.Lerp(2.7f, 3.5f, DailyNoise(day, 23));
+            float dailyCycle = Mathf.Cos(phase) * amplitude;
+            float seasonalCycle = Mathf.Cos((dayOfYear - 205f) / 365.25f * FullCircle) * 1.1f;
+            float dayBlend = Mathf.SmoothStep(0f, 1f, hour / HoursPerDay);
+            float previousVariation = (DailyNoise(day - 1, 109) - 0.5f) * 4.6f;
+            float nextVariation = (DailyNoise(day, 109) - 0.5f) * 4.6f;
+            float dailyVariation = Mathf.Lerp(previousVariation, nextVariation, dayBlend);
+            float middayVariation = Mathf.Sin(phase * 2f + 0.4f) * 0.55f *
+                (0.4f + DailyNoise(day, 71));
 
-            return Mathf.Clamp(26.1f + dayCycle + yearCycle - precipitation, 16f, 35f);
+            string weather = NormalizeWeatherCode(code);
+            float precipitation = 0f;
+            if (weather.Contains("storm") || weather.Contains("thunder"))
+                precipitation = 3.8f;
+            else if (weather.Contains("rain") || weather.Contains("drizzle"))
+                precipitation = 2.7f;
+            else if (weather.Contains("cloud") || weather.Contains("fog") || weather.Contains("mist"))
+                precipitation = 1.1f;
+
+            return Mathf.Clamp(27.7f + dailyCycle + seasonalCycle + dailyVariation +
+                middayVariation - precipitation, 21f, 36f);
+        }
+
+        private static float CalculateTropicalHumidity(float hour, string code)
+        {
+            float sunlight = Mathf.Max(0f, Mathf.Sin((hour - 6f) / 12f * Mathf.PI));
+            float humidity = Mathf.Lerp(88f, 70f, sunlight);
+            string weather = NormalizeWeatherCode(code);
+            if (weather.Contains("storm") || weather.Contains("thunder") ||
+                weather.Contains("rain") || weather.Contains("drizzle"))
+                humidity = Mathf.Max(humidity, 94f);
+            else if (weather.Contains("cloud") || weather.Contains("fog") || weather.Contains("mist"))
+                humidity = Mathf.Max(humidity, 82f);
+            return Mathf.Clamp(humidity, 55f, 98f);
+        }
+
+        private static float CalculateDaylight(float hour, string code)
+        {
+            float sunlight = Mathf.Max(0f, Mathf.Sin((hour - 6f) / 12f * Mathf.PI));
+            string weather = NormalizeWeatherCode(code);
+            if (weather.Contains("storm") || weather.Contains("thunder")) return sunlight * 0.12f;
+            if (weather.Contains("rain") || weather.Contains("drizzle")) return sunlight * 0.22f;
+            if (weather.Contains("cloud") || weather.Contains("fog") || weather.Contains("mist"))
+                return sunlight * 0.45f;
+            return sunlight;
+        }
+
+        private static float DailyNoise(int day, int salt)
+        {
+            unchecked
+            {
+                uint seed = (uint)day + (uint)(salt * 1973);
+                seed ^= seed >> 16;
+                seed *= 0x7feb352dU;
+                seed ^= seed >> 15;
+                seed *= 0x846ca68bU;
+                seed ^= seed >> 16;
+                return (seed & 0x00ffffffU) / 16777215f;
+            }
         }
     }
 }

@@ -5,7 +5,7 @@ using System.Reflection;
 using HMLLibrary;
 using UnityEngine;
 
-namespace xSkills.GUI
+namespace xSkills.Services
 {
     internal static class ResourceLoader
     {

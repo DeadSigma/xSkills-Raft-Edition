@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using xSkills.Skills;
 
+using xSkills.Services;
 namespace xSkills.GUI
 {
     internal sealed partial class SkillGraphicalUI
