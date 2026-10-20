@@ -9,19 +9,19 @@ namespace xSkills.Systems
     [DataContract]
     internal sealed class WaterSurvivalSettings
     {
-        [DataMember] public float InitialWaterSeconds = 150f;
+        [DataMember] public float InitialWaterSeconds = 15f;
         [DataMember] public float WaterSecondsPerLevel = 20f;
         [DataMember] public float TrainingSeconds = 150f;
         [DataMember] public float WaterTrainingGrowth = 1.25f;
-        [DataMember] public float FatigueRegenPerSecond = 10f;
+        [DataMember] public float FatigueRegenPerSecond = .4f;
         [DataMember] public float FatigueRegenCooldown = 3f;
-        [DataMember] public float InitialOxygen = 200f;
+        [DataMember] public float InitialOxygen = 300f;
         [DataMember] public float OxygenPerLevel = 15f;
         [DataMember] public float OxygenLossPerSecond = 30f;
         [DataMember] public float OxygenLossReduction = .5f;
         [DataMember] public float DivesToLevel = 10f;
         [DataMember] public float TrainingUnderwaterSeconds = 150f;
-        [DataMember] public int SettingsVersion = 2;
+        [DataMember] public int SettingsVersion = 3;
         [DataMember] public float DiveTrainingGrowth = 1.2f;
         [DataMember] public float OxygenRegenMultiplier = .5f;
         [DataMember] public float FishingDelayMultiplier = 1.5f;
@@ -49,6 +49,23 @@ namespace xSkills.Systems
                 Current.TrainingUnderwaterSeconds = Mathf.Clamp(
                     Mathf.Max(1f, Current.DivesToLevel) * 15f, 15f, 3600f);
                 Current.SettingsVersion = 2;
+                dirty = true;
+                saveAt = Time.unscaledTime + 1.5f;
+            }
+            if (Current.SettingsVersion < 3)
+            {
+                // Старые стандартные значения заменяются новыми
+                float oldWaterSeconds = Mathf.Max(15f, Current.InitialWaterSeconds);
+                if (Mathf.Approximately(Current.InitialWaterSeconds, 150f))
+                    Current.InitialWaterSeconds = 15f;
+                if (Mathf.Approximately(Current.InitialOxygen, 200f) &&
+                    Mathf.Approximately(Current.OxygenLossPerSecond, 30f))
+                    Current.InitialOxygen = 300f;
+
+                // Время полного восстановления увеличивается в 2,5 раза
+                Current.FatigueRegenPerSecond *=
+                    Current.InitialWaterSeconds / oldWaterSeconds / 2.5f;
+                Current.SettingsVersion = 3;
                 dirty = true;
                 saveAt = Time.unscaledTime + 1.5f;
             }

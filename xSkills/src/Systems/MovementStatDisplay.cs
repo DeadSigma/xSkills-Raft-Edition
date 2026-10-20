@@ -63,7 +63,7 @@ namespace xSkills.Systems
             catch (Exception) { return 1f; }
         }
 
-        private static float ReadEquippedFlippersMultiplier(Network_Player player)
+        internal static float ReadEquippedFlippersMultiplier(Network_Player player)
         {
             if (player.PlayerEquipment == null || playerEquipmentArrayField == null)
                 return 1f;
@@ -119,7 +119,9 @@ namespace xSkills.Systems
                 // Резервные значения применяются только если поле недоступно
                 if (!fieldRead)
                 {
-                    if (string.Equals(itemName, "Reinforced_Flippers", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(itemName, "Flipper", StringComparison.OrdinalIgnoreCase))
+                        result = Mathf.Max(result, 1.5f);
+                    else if (string.Equals(itemName, "Reinforced_Flippers", StringComparison.OrdinalIgnoreCase))
                         result = Mathf.Max(result, 1.9f);
                     else if (string.Equals(itemName, "Carbon_Steel_Flippers", StringComparison.OrdinalIgnoreCase))
                         result = Mathf.Max(result, 2.6f);

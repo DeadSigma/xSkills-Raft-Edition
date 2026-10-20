@@ -39,6 +39,8 @@ namespace xSkills.GUI
         private Text waterTrainingLevel;
         private Text oxygenCapacityText;
         private Text waterStaminaText;
+        private Text oxygenEquipmentBonus;
+        private Text waterEquipmentBonus;
         private Text homeDateText;
         private Text homeClockText;
         private Text homeTemperatureText;
@@ -97,10 +99,10 @@ namespace xSkills.GUI
                 "100%", " ", right, 768);
             HomeWaterProgressRow("Oxygen training", "ui-home-oxygen-training", right, 818,
                 out oxygenTrainingTitle, out oxygenCapacityText,
-                out oxygenTrainingText, out oxygenTrainingLevel);
+                out oxygenTrainingText, out oxygenTrainingLevel, out oxygenEquipmentBonus);
             HomeWaterProgressRow("Water stamina", "ui-home-time-on-water", right, 881,
                 out waterTrainingTitle, out waterStaminaText,
-                out waterTrainingText, out waterTrainingLevel);
+                out waterTrainingText, out waterTrainingLevel, out waterEquipmentBonus);
 
             HomePanel("Environment", left, 624, leftWidth, 340, Localizer.T("ui-home-environment"));
             UIFactory.Label(abilitiesRoot, "Date label", Localizer.T("ui-home-date"),
@@ -203,16 +205,18 @@ namespace xSkills.GUI
         }
 
         private void HomeWaterProgressRow(string id, string titleKey, float panelX, float y,
-            out Text title, out Text duration, out Text progress, out Text level)
+            out Text title, out Text duration, out Text progress, out Text level, out Text bonus)
         {
             title = UIFactory.Label(abilitiesRoot, id + " title", Localizer.T(titleKey),
-                panelX + 27, y, 490, 32, 19, UIFactory.White, TextAnchor.MiddleLeft);
+                panelX + 27, y, 333, 32, 19, UIFactory.White, TextAnchor.MiddleLeft);
+            level = UIFactory.Label(abilitiesRoot, id + " level", "0/10",
+                panelX + 371, y, 170, 32, 18, UIFactory.Gold, TextAnchor.MiddleLeft);
             duration = UIFactory.Label(abilitiesRoot, id + " duration", "0 " + Localizer.T("ui-home-seconds-short"),
                 panelX + 573, y, 235, 32, 20, UIFactory.Green, TextAnchor.MiddleRight);
             progress = UIFactory.Label(abilitiesRoot, id + " progress", "0:00/2:30",
                 panelX + 573, y + 28, 235, 23, 18, UIFactory.White, TextAnchor.MiddleRight);
-            level = UIFactory.Label(abilitiesRoot, id + " level", "0/10",
-                panelX + 813, y, 92, 32, 18, UIFactory.Gold, TextAnchor.MiddleRight);
+            bonus = UIFactory.Label(abilitiesRoot, id + " equipment bonus", "",
+                panelX + 813, y, 92, 32, 18, UIFactory.Green, TextAnchor.MiddleRight);
         }
 
         private Text HomePhysicalRow(string id, string label, string previewValue, string bonus,
@@ -307,6 +311,22 @@ namespace xSkills.GUI
             if (waterStaminaText != null)
                 waterStaminaText.text = Mathf.RoundToInt(WaterSurvivalSystem.FatigueMaximum).ToString() +
                     " " + Localizer.T("ui-home-seconds-short");
+            string secondsShort = " " + Localizer.T("ui-home-seconds-short");
+            if (oxygenEquipmentBonus != null)
+            {
+                float bonus = WaterSurvivalSystem.OxygenEquipmentBonusSeconds;
+                int seconds = float.IsPositiveInfinity(bonus) ? 0 :
+                    Mathf.RoundToInt(WaterSurvivalSystem.EffectiveBreathSeconds) -
+                    Mathf.RoundToInt(WaterSurvivalSystem.BaseBreathSeconds);
+                oxygenEquipmentBonus.text = float.IsPositiveInfinity(bonus) ? "+∞" :
+                    seconds > 0 ? "+" + seconds + secondsShort : "";
+            }
+            if (waterEquipmentBonus != null)
+            {
+                int seconds = Mathf.RoundToInt(WaterSurvivalSystem.FatigueMaximum) -
+                    Mathf.RoundToInt(WaterSurvivalSystem.BaseFatigueMaximum);
+                waterEquipmentBonus.text = seconds > 0 ? "+" + seconds + secondsShort : "";
+            }
             if (oxygenTrainingLevel != null) oxygenTrainingLevel.text = Localizer.T("ui-home-level-short") + " " + WaterSurvivalSystem.LungLevelText;
             if (waterTrainingLevel != null) waterTrainingLevel.text = Localizer.T("ui-home-level-short") + " " + WaterSurvivalSystem.WaterLevelText;
 
@@ -480,8 +500,8 @@ namespace xSkills.GUI
             hungerRateText = hungerRateBonus = null;
             dehydrationRateText = dehydrationRateBonus = null;
             swimSpeedText = swimSpeedBonus = null;
-            oxygenTrainingTitle = oxygenCapacityText = oxygenTrainingText = oxygenTrainingLevel = null;
-            waterTrainingTitle = waterStaminaText = waterTrainingText = waterTrainingLevel = null;
+            oxygenTrainingTitle = oxygenCapacityText = oxygenTrainingText = oxygenTrainingLevel = oxygenEquipmentBonus = null;
+            waterTrainingTitle = waterStaminaText = waterTrainingText = waterTrainingLevel = waterEquipmentBonus = null;
             homeDateText = null;
             homeClockText = null;
             homeTemperatureText = null;

@@ -41,6 +41,8 @@ namespace xSkills.Systems
         private static string activeTank;
         private static float tankBonus;
         private static float tankRegen;
+        private static float flipperStaminaMultiplier = 1f;
+        private static float nextFlipperCheck;
         private static float pendingSaveSeconds;
         private const int LastChancePressCount = 3;
         private const int LastChanceMaxBursts = 3;
@@ -63,14 +65,16 @@ namespace xSkills.Systems
         internal static int FatigueLevel { get { return progression.FatigueLevel; } }
         internal static int LungLevel { get { return progression.LungLevel; } }
         internal static float FatigueSeconds { get { return fatigue; } }
-        internal static float FatigueMaximum
+        internal static float BaseFatigueMaximum
         {
             get
             {
                 WaterSurvivalSettings s = WaterSurvivalSettings.Current;
-                return s == null ? 150f : s.InitialWaterSeconds + progression.FatigueLevel * s.WaterSecondsPerLevel;
+                return s == null ? 15f : s.InitialWaterSeconds + progression.FatigueLevel * s.WaterSecondsPerLevel;
             }
         }
+        internal static float FatigueMaximum { get { return BaseFatigueMaximum * flipperStaminaMultiplier; } }
+        internal static float FatigueEquipmentBonusSeconds { get { return Mathf.Max(0f, FatigueMaximum - BaseFatigueMaximum); } }
         internal static int FatigueRequired
         {
             get
@@ -91,6 +95,16 @@ namespace xSkills.Systems
             }
         }
 
+        internal static float BaseBreathSeconds
+        {
+            get
+            {
+                WaterSurvivalSettings s = WaterSurvivalSettings.Current;
+                if (s == null || !s.OxygenEnabled) return 0f;
+                float baseOxygen = s.InitialOxygen + progression.LungLevel * s.OxygenPerLevel;
+                return baseOxygen / EffectiveOxygenLoss;
+            }
+        }
         internal static float EffectiveBreathSeconds
         {
             get
@@ -99,6 +113,14 @@ namespace xSkills.Systems
                 if (s == null || !s.OxygenEnabled) return 0f;
                 float netLoss = EffectiveOxygenLoss - tankRegen;
                 return netLoss <= .001f ? float.PositiveInfinity : EffectiveOxygenMax / netLoss;
+            }
+        }
+        internal static float OxygenEquipmentBonusSeconds
+        {
+            get
+            {
+                float total = EffectiveBreathSeconds;
+                return float.IsPositiveInfinity(total) ? total : Mathf.Max(0f, total - BaseBreathSeconds);
             }
         }
 
@@ -157,7 +179,7 @@ namespace xSkills.Systems
             get
             {
                 WaterSurvivalSettings s = WaterSurvivalSettings.Current;
-                if (s == null) return 200f;
+                if (s == null) return 300f;
                 return s.InitialOxygen + progression.LungLevel * s.OxygenPerLevel + tankBonus;
             }
         }
@@ -206,7 +228,9 @@ namespace xSkills.Systems
                 stats = player.Stats;
                 controller = stats.GetComponent<PersonController>();
                 oxygen = stats.stat_oxygen;
-                fatigue = FatigueMaximum;
+                flipperStaminaMultiplier = 1f;
+                fatigue = BaseFatigueMaximum;
+                nextFlipperCheck = 0f;
                 ResetLastChance();
 
                 tankBonus = tankRegen = 0f;
@@ -216,6 +240,11 @@ namespace xSkills.Systems
             dt = Mathf.Clamp(dt, 0f, .15f);
             WaterSurvivalSettings s = WaterSurvivalSettings.Current;
             if (s == null) return;
+            if (Time.unscaledTime >= nextFlipperCheck)
+            {
+                nextFlipperCheck = Time.unscaledTime + .5f;
+                RefreshFlipperStamina();
+            }
             float max = FatigueMaximum;
             fatigue = Mathf.Clamp(fatigue, 0f, max);
             bool inWater = controller.controllerType == ControllerType.Water;
@@ -242,7 +271,8 @@ namespace xSkills.Systems
                     {
                         progression.FatigueTrainingSeconds -= required;
                         progression.FatigueLevel++;
-                        fatigue += s.WaterSecondsPerLevel;
+                        fatigue += s.WaterSecondsPerLevel * flipperStaminaMultiplier;
+                        max = FatigueMaximum;
                         if (progression.FatigueLevel >= MaxLevel) progression.FatigueTrainingSeconds = 0f;
                         SkillProgressStorage.MarkExternalChanged(true);
                     }
@@ -266,6 +296,17 @@ namespace xSkills.Systems
                 nextTankCheck = Time.unscaledTime + 1f;
                 RefreshTank();
             }
+        }
+
+        private static void RefreshFlipperStamina()
+        {
+            float flippers = MovementStatDisplay.ReadEquippedFlippersMultiplier(localPlayer);
+            float next = 1f + Mathf.Clamp((Mathf.Max(1f, flippers) - 1f) * .5f, 0f, .8f);
+            if (Mathf.Abs(next - flipperStaminaMultiplier) < .001f) return;
+            float oldMax = FatigueMaximum;
+            flipperStaminaMultiplier = next;
+            float newMax = FatigueMaximum;
+            fatigue = oldMax > .001f ? Mathf.Clamp01(fatigue / oldMax) * newMax : newMax;
         }
 
         private static void RefreshTank()
@@ -521,6 +562,8 @@ namespace xSkills.Systems
             oxygen = null;
             activeTank = null;
             tankBonus = tankRegen = 0f;
+            flipperStaminaMultiplier = 1f;
+            nextFlipperCheck = 0f;
             ResetLastChance();
 
         }
