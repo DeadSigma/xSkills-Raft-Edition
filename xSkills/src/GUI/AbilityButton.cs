@@ -34,7 +34,7 @@ namespace xSkills.GUI
             glow = UIFactory.Image(holder, "Glow", "elements", "ability_glow", -64, -80, width + 128, height + 160);
             glow.color = new Color(1, .69f, .2f, 0);
             UIFactory.Image(holder, "Background", "elements", "abilitybox_bg", 0, 0, width, height);
-            icon = UIFactory.Image(holder, "Ability icon", "abilityicon", data.Id, 0, 0, width, height);
+            icon = UIFactory.Image(holder, "Ability icon", "abilityicon", data.Id == "angler" ? "fisher" : data.Id, 0, 0, width, height);
             UIFactory.Image(holder, "Shadow", "elements", "ability_shadow", 0, 0, width, height, 30);
             UIFactory.Image(holder, "Name backing", "elements", "abilitybox_name_under", 0, height - 48, width, 48);
             nameLabel = UIFactory.Label(holder, "Name", Localizer.AbilityName(data.Id, data.Title), 3, height - 51, width - 6, 45, 18, UIFactory.Grey, TextAnchor.MiddleCenter);

@@ -231,6 +231,7 @@ namespace xSkills.GUI
 
         private void BuildSkillSettings(RectTransform parent, string skillId)
         {
+            if (skillId == "fishing") { BuildFishingIntegrationSettings(parent); return; }
             UIFactory.Label(parent, "Skill settings summary", Localizer.F("settings-skill-heading", Localizer.SkillName(skillId)),
                 22, 26, 585, 55, 26, UIFactory.Gold);
             UIFactory.Label(parent, "Skill settings template", Localizer.T("settings-skill-future"),

@@ -9,7 +9,7 @@ namespace xSkills.GUI
     {
         private int pinnedInfoSection = -1;
         private int shownInfoSection = -1;
-        private readonly Image[] infoFrames = new Image[5];
+        private readonly Image[] infoFrames = new Image[6];
 
         private void UnpinInfoSection()
         {
@@ -44,22 +44,22 @@ namespace xSkills.GUI
 
             UIFactory.Label(abilitiesRoot, "Info pin hint", Localizer.T("ui-info-pin-hint"),
                 35, 132, 950, 25, 17, UIFactory.Grey);
-            for (int i = 1; i <= 5; i++)
+            for (int i = 1; i <= 6; i++)
             {
                 int section = i;
-                float y = 164 + (i - 1) * 122;
+                float y = 164 + (i - 1) * 104;
                 Image background = UIFactory.Image(abilitiesRoot, "Info " + i + " bg", "elements",
-                    "abilitybox_bg_info", 35, y, 950, 108);
+                    "abilitybox_bg_info", 35, y, 950, 98);
                 UIFactory.Image(abilitiesRoot, "Info " + i + " shadow", "elements",
-                    "ability_shadow", 35, y, 950, 108, 30);
+                    "ability_shadow", 35, y, 950, 98, 30);
                 Image frame = UIFactory.Image(abilitiesRoot, "Info " + i + " frame", "elements",
-                    "abilitybox_frame_inactive", 35, y, 950, 108, 15);
+                    "abilitybox_frame_inactive", 35, y, 950, 98, 15);
                 infoFrames[i - 1] = frame;
                 UIFactory.Label(abilitiesRoot, "Info " + i + " title", Localizer.T("custominfo-title-" + i),
-                    55, y + 8, 915, 38, 27, UIFactory.Gold);
+                    55, y + 7, 915, 36, 25, UIFactory.Gold);
                 UIFactory.Label(abilitiesRoot, "Info " + i + " summary", Localizer.T("custominfo-shortdesc-" + i),
-                    55, y + 48, 915, 49, 19, UIFactory.White);
-                UIFactory.Button(abilitiesRoot, "Info " + i + " hover", 35, y, 950, 108,
+                    55, y + 45, 915, 43, 18, UIFactory.White);
+                UIFactory.Button(abilitiesRoot, "Info " + i + " hover", 35, y, 950, 98,
                     () => PinInfoSection(section),
                     () => { if (pinnedInfoSection < 0) ShowInfoSection(section); RefreshInfoFrames(); },
                     () => { if (pinnedInfoSection < 0) ShowInfoIntro(); RefreshInfoFrames(); });

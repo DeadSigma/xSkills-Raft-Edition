@@ -8,6 +8,7 @@ using System.Text;
 using HMLLibrary;
 using UnityEngine;
 using xSkills.Skills;
+using xSkills.Systems;
 
 namespace xSkills.Services
 {
@@ -51,6 +52,7 @@ namespace xSkills.Services
             [DataMember(Order = 2)] public int Revision;
             [DataMember(Order = 3)] public int UnlearnPoints;
             [DataMember(Order = 4)] public SavedSkill[] Skills;
+            [DataMember(Order = 5, EmitDefaultValue = false)] public WaterProgressData Water;
         }
 
         private static readonly DataContractJsonSerializer ProgressSerializer =
@@ -161,6 +163,7 @@ namespace xSkills.Services
             restoring = true;
             dirty = false;
             revision = 0;
+            bool migratedWater = false;
             try
             {
                 SavedProgress progress = null;
@@ -202,13 +205,28 @@ namespace xSkills.Services
                         skill.RestoreProgress(stored.Level, stored.Experience, tiers);
                     }
                 }
+                WaterProgressData water = progress != null ? progress.Water : null;
+                if (water == null)
+                {
+                    water = WaterSurvivalSystem.TryImportBetterRaft();
+                    migratedWater = water != null;
+                }
+                WaterSurvivalSystem.RestoreProgress(water);
                 SkillCatalog.NotifyChanged();
             }
             catch (Exception ex)
             {
                 Debug.LogWarning("[xSkills] Skill progress load failed: " + ex);
             }
-            finally { restoring = false; }
+            finally
+            {
+                restoring = false;
+                if (migratedWater)
+                {
+                    dirty = true;
+                    saveAt = Time.unscaledTime + .5f;
+                }
+            }
         }
 
         private static void OnChanged()
@@ -226,6 +244,11 @@ namespace xSkills.Services
             MarkDirty(true);
         }
 
+        internal static void MarkExternalChanged(bool immediate)
+        {
+            MarkDirty(immediate);
+        }
+
         private static void MarkDirty(bool immediate)
         {
             if (restoring || saveKey == null) return;
@@ -240,6 +263,7 @@ namespace xSkills.Services
             SavedProgress progress = new SavedProgress();
             progress.Revision = revision + 1;
             progress.UnlearnPoints = SkillCatalog.UnlearnPoints;
+            progress.Water = WaterSurvivalSystem.CollectProgress();
             progress.Skills = new SavedSkill[skills.Count];
             for (int i = 0; i < skills.Count; i++)
             {
@@ -289,7 +313,12 @@ namespace xSkills.Services
                 string json = Serialize(progress);
                 SavedProgress roundtrip = Parse(json);
                 if (roundtrip == null || roundtrip.Skills.Length != progress.Skills.Length ||
-                    SavedSurvival(roundtrip) != SavedSurvival(progress))
+                    SavedSurvival(roundtrip) != SavedSurvival(progress) ||
+                    roundtrip.Water == null ||
+                    roundtrip.Water.FatigueLevel != progress.Water.FatigueLevel ||
+                    roundtrip.Water.LungLevel != progress.Water.LungLevel ||
+                    Math.Abs(roundtrip.Water.OxygenTrainingSeconds - progress.Water.OxygenTrainingSeconds) > .01f ||
+                    Math.Abs(roundtrip.Water.FatigueTrainingSeconds - progress.Water.FatigueTrainingSeconds) > .01f)
                     throw new InvalidOperationException("Skill progress JSON failed round-trip validation");
 
                 bool written = false;
@@ -343,6 +372,7 @@ namespace xSkills.Services
         private static void Detach()
         {
             if (saveKey == null) return;
+            WaterSurvivalSystem.FlushProgress();
             Save();
             saveKey = null;
             savePath = null;
@@ -355,6 +385,7 @@ namespace xSkills.Services
                 List<SkillData> skills = SkillCatalog.Create();
                 for (int i = 0; i < skills.Count; i++) skills[i].Reset();
                 SkillCatalog.SetUnlearnPoints(0);
+                WaterSurvivalSystem.RestoreProgress(null);
                 SkillCatalog.NotifyChanged();
             }
             finally { restoring = false; }
@@ -363,6 +394,7 @@ namespace xSkills.Services
         internal static void Dispose()
         {
             if (!initialized) return;
+            WaterSurvivalSystem.FlushProgress();
             Save();
             SkillCatalog.Changed -= OnChanged;
             SkillCatalog.ExperienceGained -= OnExperienceGained;

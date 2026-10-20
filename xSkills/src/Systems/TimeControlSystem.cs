@@ -93,6 +93,14 @@ namespace xSkills.Systems
             get { return Instance != null && LoadSceneManager.IsGameSceneLoaded && Raft_Network.IsHost; }
         }
 
+        internal static float CurrentHungerRate
+        {
+            get { return IsHostInWorld ? Instance.hungerClimateFactor : 1f; }
+        }
+        internal static float CurrentThirstRate
+        {
+            get { return IsHostInWorld ? Instance.thirstClimateFactor : 1f; }
+        }
         internal float HungerFactor { get { return hungerClimateFactor; } }
         internal float ThirstFactor { get { return thirstClimateFactor; } }
         internal float VanillaDaySeconds { get { return originalDayCycle > 0f ? Mathf.Round(originalDayCycle * 60f) : TimeControlSettings.DefaultDaySeconds; } }

@@ -23,6 +23,22 @@ namespace xSkills.GUI
         private Text thirstText;
         private Text bodyTemperatureText;
         private Text wetnessText;
+        private Text walkSpeedText;
+        private Text walkSpeedBonus;
+        private Text hungerRateText;
+        private Text hungerRateBonus;
+        private Text dehydrationRateText;
+        private Text dehydrationRateBonus;
+        private Text swimSpeedText;
+        private Text swimSpeedBonus;
+        private Text oxygenTrainingText;
+        private Text waterTrainingText;
+        private Text oxygenTrainingTitle;
+        private Text waterTrainingTitle;
+        private Text oxygenTrainingLevel;
+        private Text waterTrainingLevel;
+        private Text oxygenCapacityText;
+        private Text waterStaminaText;
         private Text homeDateText;
         private Text homeClockText;
         private Text homeTemperatureText;
@@ -64,38 +80,37 @@ namespace xSkills.GUI
             healthText = HomePhysicalRow("Health", Localizer.T("ui-home-health-points"),
                 Localizer.T("ui-home-preview-health"), "+10 HP", right, 352);
             hungerText = HomePhysicalRow("Satiety", Localizer.T("ui-home-satiety"),
-                Localizer.T("ui-home-preview-satiety"), null, right, 409);
+                Localizer.T("ui-home-preview-satiety"), null, right, 404);
             thirstText = HomePhysicalRow("Thirst", Localizer.T("ui-thirst"),
-                Localizer.T("ui-home-preview-thirst"), null, right, 466);
+                Localizer.T("ui-home-preview-thirst"), null, right, 456);
             bodyTemperatureText = HomePhysicalRow("Body temperature", Localizer.T("ui-home-body-temperature"),
-                "36.6 °C", null, right, 523);
+                "36.6 °C", null, right, 508);
             wetnessText = HomePhysicalRow("Wetness", Localizer.T("ui-home-wetness"),
-                Localizer.T("ui-home-dry"), null, right, 580);
-            HomePhysicalRow("Walk speed", Localizer.T("ui-home-walk-speed"),
-                "100%", "+10%", right, 637);
-            HomePhysicalRow("Hunger rate", Localizer.T("ui-home-hunger-rate"),
-                "100%", "-10%", right, 694);
-            HomePhysicalRow("Swim speed", Localizer.T("ui-home-swim-speed"),
-                "100%", "+15%", right, 751);
-            HomePhysicalRow("Oxygen consumption", Localizer.T("ui-home-oxygen-consumption"),
-                "100%", "-20%", right, 808);
-            HomePhysicalRow("Oxygen reserve", Localizer.T("ui-home-oxygen-reserve"),
-                Localizer.T("ui-home-preview-oxygen"), Localizer.T("ui-home-bonus-oxygen"), right, 865);
-
-            UIFactory.Label(abilitiesRoot, "Stats demo note", Localizer.T("ui-home-bonus-note"),
-                right + 27, 914, rightWidth - 54, 26, 16, UIFactory.Grey, TextAnchor.MiddleLeft);
+                Localizer.T("ui-home-dry"), null, right, 560);
+            walkSpeedText = HomePhysicalRow("Walk speed", Localizer.T("ui-home-walk-speed"),
+                "100%", " ", right, 612);
+            hungerRateText = HomePhysicalRow("Hunger rate", Localizer.T("ui-home-hunger-rate"),
+                "100%", " ", right, 664);
+            dehydrationRateText = HomePhysicalRow("Dehydration rate", Localizer.T("ui-home-dehydration-rate"),
+                "100%", " ", right, 716);
+            swimSpeedText = HomePhysicalRow("Swim speed", Localizer.T("ui-home-swim-speed"),
+                "100%", " ", right, 768);
+            HomeWaterProgressRow("Oxygen training", "ui-home-oxygen-training", right, 818,
+                out oxygenTrainingTitle, out oxygenCapacityText,
+                out oxygenTrainingText, out oxygenTrainingLevel);
+            HomeWaterProgressRow("Water stamina", "ui-home-time-on-water", right, 881,
+                out waterTrainingTitle, out waterStaminaText,
+                out waterTrainingText, out waterTrainingLevel);
 
             HomePanel("Environment", left, 624, leftWidth, 340, Localizer.T("ui-home-environment"));
             UIFactory.Label(abilitiesRoot, "Date label", Localizer.T("ui-home-date"),
-                left + 27, 700, 110, 31, 21, UIFactory.White, TextAnchor.MiddleLeft);
+                left + 27, 696, 110, 31, 21, UIFactory.White, TextAnchor.MiddleLeft);
             homeDateText = UIFactory.Label(abilitiesRoot, "Calendar date", Localizer.T("ui-home-preview-date"),
-                left + 137, 700, 455, 31, 21, UIFactory.Gold, TextAnchor.MiddleLeft);
+                left + 137, 696, 455, 31, 21, UIFactory.Gold, TextAnchor.MiddleLeft);
             homeClockText = UIFactory.Label(abilitiesRoot, "Time of day", Localizer.T("ui-home-preview-time"),
-                left + 628, 700, 160, 31, 21, UIFactory.Gold, TextAnchor.MiddleRight);
-            homeTemperatureText = HomeEnvironmentRow("Temperature", Localizer.T("ui-home-temperature"), left, 770);
-            homeWeatherText = HomeEnvironmentRow("Weather", Localizer.T("ui-home-weather"), left, 840);
-            UIFactory.Label(abilitiesRoot, "Environment note", Localizer.T("ui-home-environment-note"),
-                left + 27, 914, leftWidth - 54, 29, 16, UIFactory.Grey, TextAnchor.MiddleLeft);
+                left + 628, 696, 160, 31, 21, UIFactory.Gold, TextAnchor.MiddleRight);
+            homeTemperatureText = HomeEnvironmentRow("Temperature", Localizer.T("ui-home-temperature"), left, 782);
+            homeWeatherText = HomeEnvironmentRow("Weather", Localizer.T("ui-home-weather"), left, 868);
 
             RefreshWorldEnvironment();
             RefreshPlayerHome(true);
@@ -187,6 +202,19 @@ namespace xSkills.GUI
             }
         }
 
+        private void HomeWaterProgressRow(string id, string titleKey, float panelX, float y,
+            out Text title, out Text duration, out Text progress, out Text level)
+        {
+            title = UIFactory.Label(abilitiesRoot, id + " title", Localizer.T(titleKey),
+                panelX + 27, y, 490, 32, 19, UIFactory.White, TextAnchor.MiddleLeft);
+            duration = UIFactory.Label(abilitiesRoot, id + " duration", "0 " + Localizer.T("ui-home-seconds-short"),
+                panelX + 573, y, 235, 32, 20, UIFactory.Green, TextAnchor.MiddleRight);
+            progress = UIFactory.Label(abilitiesRoot, id + " progress", "0:00/2:30",
+                panelX + 573, y + 28, 235, 23, 18, UIFactory.White, TextAnchor.MiddleRight);
+            level = UIFactory.Label(abilitiesRoot, id + " level", "0/10",
+                panelX + 813, y, 92, 32, 18, UIFactory.Gold, TextAnchor.MiddleRight);
+        }
+
         private Text HomePhysicalRow(string id, string label, string previewValue, string bonus,
             float panelX, float y)
         {
@@ -199,6 +227,10 @@ namespace xSkills.GUI
                 Text bonusLabel = UIFactory.Label(abilitiesRoot, id + " bonus", bonus,
                     panelX + 813, y, 92, 32, 19, UIFactory.Green, TextAnchor.MiddleRight);
                 if (id == "Health") dietHealthBonus = bonusLabel;
+                else if (id == "Walk speed") walkSpeedBonus = bonusLabel;
+                else if (id == "Hunger rate") hungerRateBonus = bonusLabel;
+                else if (id == "Dehydration rate") dehydrationRateBonus = bonusLabel;
+                else if (id == "Swim speed") swimSpeedBonus = bonusLabel;
             }
             return current;
         }
@@ -261,6 +293,22 @@ namespace xSkills.GUI
             RefreshConsumable(stats != null ? stats.stat_thirst : null, thirstText);
             RefreshHomeDiet();
             RefreshHomeTemperature();
+            RefreshHomeRates(player);
+            if (oxygenTrainingText != null) oxygenTrainingText.text = WaterSurvivalSystem.OxygenTrainingText;
+            if (waterTrainingText != null) waterTrainingText.text = WaterSurvivalSystem.WaterTrainingText;
+            if (oxygenTrainingTitle != null) oxygenTrainingTitle.text = Localizer.T("ui-home-oxygen-training");
+            if (waterTrainingTitle != null) waterTrainingTitle.text = Localizer.T("ui-home-time-on-water");
+            if (oxygenCapacityText != null)
+            {
+                float seconds = WaterSurvivalSystem.EffectiveBreathSeconds;
+                oxygenCapacityText.text = float.IsPositiveInfinity(seconds) ? "∞" :
+                    Mathf.Max(0, Mathf.RoundToInt(seconds)).ToString() + " " + Localizer.T("ui-home-seconds-short");
+            }
+            if (waterStaminaText != null)
+                waterStaminaText.text = Mathf.RoundToInt(WaterSurvivalSystem.FatigueMaximum).ToString() +
+                    " " + Localizer.T("ui-home-seconds-short");
+            if (oxygenTrainingLevel != null) oxygenTrainingLevel.text = Localizer.T("ui-home-level-short") + " " + WaterSurvivalSystem.LungLevelText;
+            if (waterTrainingLevel != null) waterTrainingLevel.text = Localizer.T("ui-home-level-short") + " " + WaterSurvivalSystem.WaterLevelText;
 
             if (!playerPreviewAttempted ||
                 ((playerPreview == null || !playerPreview.Available) && Time.unscaledTime >= nextPlayerPreviewRetryAt))
@@ -280,6 +328,31 @@ namespace xSkills.GUI
                     playerPreviewFallback.gameObject.SetActive(true);
                 }
             }
+        }
+
+        private void RefreshHomeRates(Network_Player player)
+        {
+            float walk = 1f;
+            float swim = 1f;
+            MovementStatDisplay.Read(player, out walk, out swim);
+            SetHomeRate(walkSpeedText, walkSpeedBonus, walk, false);
+            SetHomeRate(swimSpeedText, swimSpeedBonus, swim, false);
+            SetHomeRate(hungerRateText, hungerRateBonus, TimeControlSystem.CurrentHungerRate, true);
+            SetHomeRate(dehydrationRateText, dehydrationRateBonus, TimeControlSystem.CurrentThirstRate, true);
+        }
+
+        private static void SetHomeRate(Text value, Text bonus, float multiplier, bool lowerIsBetter)
+        {
+            if (value == null) return;
+            multiplier = float.IsNaN(multiplier) || float.IsInfinity(multiplier)
+                ? 1f : Mathf.Max(0f, multiplier);
+            int percent = Mathf.RoundToInt(multiplier * 100f);
+            value.text = percent + "%";
+            if (bonus == null) return;
+            int delta = percent - 100;
+            bonus.text = delta == 0 ? "" : (delta > 0 ? "+" : "") + delta + "%";
+            bonus.color = delta == 0 ? UIFactory.Grey :
+                (lowerIsBetter == (delta < 0) ? UIFactory.Green : UIFactory.Hex("D88072"));
         }
 
         private void RefreshHomeTemperature()
@@ -403,6 +476,12 @@ namespace xSkills.GUI
             thirstText = null;
             bodyTemperatureText = null;
             wetnessText = null;
+            walkSpeedText = walkSpeedBonus = null;
+            hungerRateText = hungerRateBonus = null;
+            dehydrationRateText = dehydrationRateBonus = null;
+            swimSpeedText = swimSpeedBonus = null;
+            oxygenTrainingTitle = oxygenCapacityText = oxygenTrainingText = oxygenTrainingLevel = null;
+            waterTrainingTitle = waterStaminaText = waterTrainingText = waterTrainingLevel = null;
             homeDateText = null;
             homeClockText = null;
             homeTemperatureText = null;

@@ -27,8 +27,7 @@ namespace xSkills.Systems
                 !__instance.IsMovementFree) return;
             float factor = BodyTemperatureSystem.MovementMultiplier;
             if (factor >= 1f) return;
-            ___moveDirection.x = (___moveDirection.x - ___externalVelocity.x) * factor + ___externalVelocity.x;
-            ___moveDirection.z = (___moveDirection.z - ___externalVelocity.z) * factor + ___externalVelocity.z;
+            ___moveDirection = (___moveDirection - ___externalVelocity) * factor + ___externalVelocity;
         }
     }
 }

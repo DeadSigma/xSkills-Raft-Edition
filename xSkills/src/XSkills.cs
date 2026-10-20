@@ -26,6 +26,8 @@ namespace xSkills
             BodyTemperatureSystem.Initialize();
             NotebookForecastSystem.Initialize();
             TimeControlSystem.Initialize();
+            WaterSurvivalSystem.Initialize();
+            FishingIntegration.Initialize();
             ui = new SkillGraphicalUI();
             ui.Initialize();
             notifications = SkillNotifications.Create();
@@ -36,6 +38,7 @@ namespace xSkills
         public void Update()
         {
             SkillProgressStorage.Tick();
+            WaterSurvivalSystem.Tick(Time.deltaTime);
             NativeSkillHotkey.Tick();
             BodyTemperatureSystem.Tick(Time.deltaTime, Time.unscaledDeltaTime);
             TimeControlSystem.Tick();
@@ -108,12 +111,14 @@ namespace xSkills
             notifications = null;
             NativeSkillHotkey.Uninstall();
             NotebookForecastSystem.Dispose();
+            FishingIntegration.Dispose();
+            SkillProgressStorage.Dispose();
+            WaterSurvivalSystem.Dispose();
             TimeControlSystem.Dispose();
             BodyTemperatureSystem.Dispose();
             SoundPlayer.Shutdown();
             Localizer.Reset();
             ResourceLoader.Clear();
-            SkillProgressStorage.Dispose();
             SkillCatalog.Clear();
             AdminCommands.Active = false;
         }

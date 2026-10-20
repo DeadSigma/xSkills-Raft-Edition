@@ -18,7 +18,8 @@ namespace xSkills.Systems
         private const float PartialWetness = 50f;
         private const float DryingPerSecond = 0.22f;
         private const float HeatRadius = 4.5f;
-        private const float TorchRadius = 2.7f;
+        private const float TorchRadius = 3.3f;
+        private const float BrazierRadius = 4.5f;
         private const float FireWarmingPerSecond = 0.050f;
         private const float FireExtraDryingPerSecond = 0.85f;
         private const float HeatScanInterval = 8f;
@@ -33,6 +34,8 @@ namespace xSkills.Systems
             public Block Block;
             public Fuel Fuel;
             public ParticleSystem CookingFlame;
+            public LightFlickering FlameLight;
+            public Transform HeatPoint;
             public bool IsTorch;
             public float Radius;
             public float Strength;
@@ -53,6 +56,8 @@ namespace xSkills.Systems
         private static float daylight;
         private static float airHeatIndex = 26f;
         private static float injuryTimer;
+        private static float waterExposureSeconds;
+        private static float waterHeatRelief;
         private static float sunHeatIndex;
         private static bool raining;
         private static bool shaded;
@@ -115,7 +120,8 @@ namespace xSkills.Systems
                 BodyTemperatureSettings s = BodyTemperatureSettings.Current;
                 return !s.HeatEnabled || !s.NauseaEnabled ? 0f :
                     Mathf.Clamp01((Temperature - s.NauseaStart) /
-                        Mathf.Max(.1f, MaximumTemperature - s.NauseaStart));
+                        Mathf.Max(.1f, MaximumTemperature - s.NauseaStart)) *
+                    (1f - waterHeatRelief * 0.9f);
             }
         }
         internal static bool NeedsNauseaCapture
@@ -201,6 +207,8 @@ namespace xSkills.Systems
                     Temperature = NormalTemperature;
                     Wetness = 0f;
                     injuryTimer = 0f;
+                    waterExposureSeconds = 0f;
+                    waterHeatRelief = 0f;
                 }
             }
             else deathLatched = false;
@@ -247,7 +255,8 @@ namespace xSkills.Systems
             float coldAmount = settings.ColdEnabled ? Mathf.Clamp01((settings.ColdSlowStart - Temperature) /
                 Mathf.Max(.1f, settings.ColdSlowStart - MinimumTemperature)) : 0f;
             float heatAmount = settings.HeatEnabled ? Mathf.Clamp01((Temperature - settings.HeatSlowStart) /
-                Mathf.Max(.1f, MaximumTemperature - settings.HeatSlowStart)) : 0f;
+                Mathf.Max(.1f, MaximumTemperature - settings.HeatSlowStart)) *
+                (1f - waterHeatRelief * 0.9f) : 0f;
             float nauseaAmount = NauseaIntensity * settings.NauseaStrength;
             bool hasEffect = coldAmount > 0f || heatAmount > 0f || nauseaAmount > 0f ||
                 HasVisibleOverlay(coldOverlay) || HasVisibleOverlay(hotOverlay) ||
@@ -290,6 +299,12 @@ namespace xSkills.Systems
 
             if (player.PlayerScript != null && player.PlayerScript.IsDead) return;
 
+            bool immersed = inWater || underwater;
+            float reliefTarget = immersed && Temperature > 37.2f ? 1f : 0f;
+            waterHeatRelief = Mathf.MoveTowards(waterHeatRelief, reliefTarget,
+                step * (reliefTarget > waterHeatRelief ? 0.5f : 0.25f));
+            if (!immersed) waterExposureSeconds = 0f;
+
             float regulation = (NormalTemperature - Temperature) *
                 (Temperature >= NormalTemperature ? 0.013f : 0.008f);
             regulation = Mathf.Clamp(regulation, -0.075f, 0.045f);
@@ -306,6 +321,14 @@ namespace xSkills.Systems
                 float waterTemperature = Mathf.Clamp(outsideTemperature - 1.5f, 19f, 30f);
                 float waterCooling = 0.018f + Mathf.Max(0f, 30f - waterTemperature) * 0.0016f;
                 cooling = underwater ? waterCooling : waterCooling * 0.7f;
+
+                // В первые секунды вода быстро отводит избыточное тепло тела
+                float excessHeat = Mathf.Clamp01((Temperature - 37f) / 2f);
+                float contrast = Mathf.Clamp01((Temperature - waterTemperature) / 9f);
+                float entryBoost = 0.18f * excessHeat * contrast *
+                    Mathf.Exp(-waterExposureSeconds / 9f);
+                cooling += entryBoost * (underwater ? 1f : 0.8f);
+                waterExposureSeconds += step;
             }
             else
             {
@@ -463,13 +486,15 @@ namespace xSkills.Systems
                 nextHeatScan = Time.unscaledTime + HeatScanInterval;
                 RefreshHeatSources(player);
             }
-            Vector3 position = player.transform.position;
+            Vector3 position = player.transform.position + Vector3.up * 0.9f;
             float maxInfluence = 0f;
             foreach (HeatSource source in HeatSources)
             {
-                if (source.Block == null) continue;
-                float sqrDistance = (source.Block.transform.position - position).sqrMagnitude;
-                if (sqrDistance >= source.Radius * source.Radius || !IsHeatActive(source)) continue;
+                if (source.Block == null || !IsHeatActive(source)) continue;
+                Vector3 heatPosition = source.HeatPoint != null ? source.HeatPoint.position :
+                    source.Block.transform.position + Vector3.up * 0.8f;
+                float sqrDistance = (heatPosition - position).sqrMagnitude;
+                if (sqrDistance >= source.Radius * source.Radius) continue;
                 float proximity = 1f - Mathf.Sqrt(sqrDistance) / source.Radius;
                 maxInfluence = Mathf.Max(maxInfluence, proximity * source.Strength);
             }
@@ -480,7 +505,8 @@ namespace xSkills.Systems
         {
             if (source.Block == null || !source.Block.gameObject.activeInHierarchy) return false;
             if (source.Fuel != null) return source.Fuel.IsBurning();
-            if (source.IsTorch) return true;
+            if (source.IsTorch)
+                return source.FlameLight == null || source.FlameLight.isActiveAndEnabled;
             return source.CookingFlame != null && source.CookingFlame.gameObject.activeInHierarchy &&
                 source.CookingFlame.isPlaying;
         }
@@ -538,30 +564,44 @@ namespace xSkills.Systems
                 return null;
 
             string name = block.gameObject.name.ToLowerInvariant();
-            bool torch = name.Contains("torch") || name.Contains("brazier");
+            bool brazier = name.Contains("brazier") || name.Contains("firebasket") ||
+                name.Contains("fire_basket") ||
+                (name.Contains("basket") && (name.Contains("torch") || name.Contains("fire")));
+            bool torch = !brazier && name.Contains("torch");
             bool cooking = block is Block_CookingStand || name.Contains("cooking") ||
                 name.Contains("cookpot") || name.Contains("grill") ||
                 name.Contains("campfire") || name.Contains("fireplace") ||
                 name.Contains("bonfire") || name.Contains("stove");
-            if (!torch && !cooking)
-                cooking = block.GetComponentInChildren<CookingSlot>(true) != null;
-            if (!torch && !cooking) return null;
+
+            // Пламя определяется по компоненту, если название блока не содержит тип источника
+            LightFlickering flameLight = null;
+            if (!torch && !brazier && !cooking)
+            {
+                flameLight = block.GetComponentInChildren<LightFlickering>(true);
+                if (flameLight != null) torch = true;
+                else cooking = block.GetComponentInChildren<CookingSlot>(true) != null;
+            }
+            if (!torch && !brazier && !cooking) return null;
 
             Fuel fuel = null;
             Block_CookingStand stand = block as Block_CookingStand;
             if (stand != null) fuel = stand.fuel;
             if (fuel == null) fuel = block.GetComponentInChildren<Fuel>(true);
-            ParticleSystem flame = !torch && fuel == null ?
+            if ((torch || brazier) && flameLight == null)
+                flameLight = block.GetComponentInChildren<LightFlickering>(true);
+            ParticleSystem flame = !torch && !brazier && fuel == null ?
                 block.GetComponentInChildren<ParticleSystem>(true) : null;
-            if (fuel == null && !torch && flame == null) return null;
+            if (fuel == null && !torch && !brazier && flame == null) return null;
             return new HeatSource
             {
                 Block = block,
                 Fuel = fuel,
                 CookingFlame = flame,
-                IsTorch = torch,
-                Radius = torch ? TorchRadius : HeatRadius,
-                Strength = torch ? 0.26f : 1f
+                FlameLight = flameLight,
+                HeatPoint = flameLight != null ? flameLight.transform : null,
+                IsTorch = torch || brazier,
+                Radius = brazier ? BrazierRadius : torch ? TorchRadius : HeatRadius,
+                Strength = brazier ? 1.5f : torch ? 0.9f : 1f
             };
         }
 
@@ -827,6 +867,8 @@ namespace xSkills.Systems
             airHumidity = 80f;
             daylight = 0f;
             injuryTimer = 0f;
+            waterExposureSeconds = 0f;
+            waterHeatRelief = 0f;
             sunHeatIndex = 26f;
             HeatSources.Clear();
             CachedHeatSources.Clear();

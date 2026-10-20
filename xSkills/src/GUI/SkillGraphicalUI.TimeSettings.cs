@@ -57,17 +57,17 @@ namespace xSkills.GUI
         {
             if (!Raft_Network.IsHost) return;
             climateRatesText = null;
-            string[] tabs = { "settings-survival-tab-nutrition", "settings-survival-tab-cold", "settings-survival-tab-heat" };
+            string[] tabs = { "settings-survival-tab-nutrition", "settings-survival-tab-cold", "settings-survival-tab-heat", "settings-survival-tab-water", "settings-survival-tab-oxygen" };
             for (int i = 0; i < tabs.Length; i++)
             {
                 int index = i;
-                float x = 18f + i * 207f;
+                float x = 10f + i * 126f;
                 UIFactory.Image(panel, "Survival tab background " + i, "elements",
-                    "button_idle", x, 3, 190, 43);
+                    "button_idle", x, 3, 121, 43);
                 UIFactory.Label(panel, "Survival tab name " + i, Localizer.T(tabs[i]),
-                    x + 5, 6, 180, 37, 19, survivalSubPage == i ? UIFactory.Gold : UIFactory.White,
+                    x + 3, 6, 115, 37, 17, survivalSubPage == i ? UIFactory.Gold : UIFactory.White,
                     TextAnchor.MiddleCenter);
-                UIFactory.Button(panel, "Survival tab button " + i, x, 3, 190, 43, () =>
+                UIFactory.Button(panel, "Survival tab button " + i, x, 3, 121, 43, () =>
                 {
                     if (survivalSubPage == index) return;
                     survivalSubPage = index;
@@ -76,7 +76,8 @@ namespace xSkills.GUI
             }
             RectTransform content = UIFactory.Rect(panel, "Survival subsection", 0, 51, 645, 720);
             if (survivalSubPage == 0) BuildNutritionSettings(content);
-            else BuildTemperatureSettings(content, survivalSubPage == 1);
+            else if (survivalSubPage < 3) BuildTemperatureSettings(content, survivalSubPage == 1);
+            else BuildWaterSurvivalSettings(content, survivalSubPage == 3);
         }
 
         private void BuildNutritionSettings(RectTransform panel)
