@@ -139,15 +139,29 @@ namespace xSkills.Skills
             ClampTiersToLevel();
         }
 
-        private void ClampTiersToLevel()
+        // После изменения баланса убираются ступени, недоступные на текущем уровне
+        internal bool RevalidateAbilityTiers()
         {
-            int points = Level - 1;
+            bool changed = false;
+            int points = Math.Max(0, Level - 1);
             foreach (AbilityData ability in Abilities)
             {
-                if (Level < ability.RequiredLevel) ability.PreviewTier = 0;
-                ability.PreviewTier = Math.Min(ability.PreviewTier, points);
+                int permittedByLevel = Math.Max(0, Level - ability.RequiredLevel + 1);
+                int allowed = Math.Min(points, Math.Min(ability.MaxTier, permittedByLevel));
+                int valid = Math.Max(0, Math.Min(allowed, ability.PreviewTier));
+                if (valid != ability.PreviewTier)
+                {
+                    ability.PreviewTier = valid;
+                    changed = true;
+                }
                 points -= ability.PreviewTier;
             }
+            return changed;
+        }
+
+        private void ClampTiersToLevel()
+        {
+            RevalidateAbilityTiers();
         }
     }
 
@@ -163,9 +177,10 @@ namespace xSkills.Skills
         public readonly string Id;
         public readonly string Title;
         public readonly string Description;
-        public readonly int RequiredLevel;
-        public readonly int MaxTier;
-        public readonly int[] Values;
+        public int RequiredLevel { get; internal set; }
+        public int MaxTier { get; internal set; }
+        public int[] Values { get; internal set; }
+        public int ValuesPerTier { get; private set; }
         public bool PreviewLocked;
         public int PreviewTier;
         public float VisualTier;
@@ -179,6 +194,7 @@ namespace xSkills.Skills
             RequiredLevel = requiredLevel;
             MaxTier = maxTier;
             Values = values ?? new int[0];
+            ValuesPerTier = maxTier > 0 ? Values.Length / maxTier : 0;
         }
     }
 
@@ -249,6 +265,7 @@ namespace xSkills.Skills
         public static void Clear()
         {
             Registered.Clear();
+            SurvivalAbilityBalance.Clear();
             UnlearnPoints = 0;
             Changed = null;
             ExperienceGained = null;

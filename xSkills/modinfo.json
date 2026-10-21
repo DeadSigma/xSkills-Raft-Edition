@@ -1,8 +1,8 @@
 {
   "name": "xSkills",
-  "author": "DeadSigma",
+  "author": "El_Neuman",
   "description": "Standalone skill-tree interface for Raft",
-  "version": "0.1.0-pre.2",
+  "version": "0.1.0-pre.5",
   "requiredByAllPlayers": false,
   "isModPermanent": false
 }

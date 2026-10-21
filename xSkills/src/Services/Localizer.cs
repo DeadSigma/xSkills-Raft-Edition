@@ -39,8 +39,10 @@ namespace xSkills.Services
             Missing.Clear();
             LoadLanguage("en", English);
             if (code != "en") LoadLanguage(code, Selected);
-            initialized = true;
+            initialized = English.Count > 0 || Selected.Count > 0;
             Debug.Log("[xSkills] Lang selected=" + code + ", native keys=" + Selected.Count + ", en fallback=" + English.Count);
+            if (!initialized)
+                Debug.LogWarning("[xSkills] No translations loaded. Check assets/lang inside the installed .rmod");
             return true;
         }
 
@@ -52,10 +54,16 @@ namespace xSkills.Services
         private static void ReadDictionary(string path, Dictionary<string, string> target)
         {
             byte[] data = ResourceLoader.FileBytes(path, false);
-            if (data == null || data.Length == 0) return;
+            if (data == null || data.Length == 0)
+            {
+                Debug.LogWarning("[xSkills] Lang file not found or empty: " + path);
+                return;
+            }
             try
             {
-                using (var stream = new MemoryStream(data))
+                // UTF-8 BOM пропускается перед чтением JSON
+                int start = data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF ? 3 : 0;
+                using (var stream = new MemoryStream(data, start, data.Length - start, false))
                 {
                     var serializer = new DataContractJsonSerializer(typeof(Dictionary<string, string>),
                         new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true });
@@ -102,7 +110,7 @@ namespace xSkills.Services
             string key = "abilitydesc-" + id;
             string value;
             if (Selected.TryGetValue(key, out value) || English.TryGetValue(key, out value))
-                return FormatText(value);
+                return value;
             return FormatText(T("ui-ability-description-unavailable"));
         }
 

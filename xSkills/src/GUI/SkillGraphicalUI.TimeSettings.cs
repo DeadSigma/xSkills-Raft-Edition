@@ -57,17 +57,17 @@ namespace xSkills.GUI
         {
             if (!Raft_Network.IsHost) return;
             climateRatesText = null;
-            string[] tabs = { "settings-survival-tab-nutrition", "settings-survival-tab-cold", "settings-survival-tab-heat", "settings-survival-tab-water", "settings-survival-tab-oxygen" };
+            string[] tabs = { "settings-survival-tab-nutrition", "settings-survival-tab-cold", "settings-survival-tab-heat", "settings-survival-tab-perks" };
             for (int i = 0; i < tabs.Length; i++)
             {
                 int index = i;
-                float x = 10f + i * 126f;
+                float x = 12f + i * 157f;
                 UIFactory.Image(panel, "Survival tab background " + i, "elements",
-                    "button_idle", x, 3, 121, 43);
+                    "button_idle", x, 3, 150, 43);
                 UIFactory.Label(panel, "Survival tab name " + i, Localizer.T(tabs[i]),
-                    x + 3, 6, 115, 37, 17, survivalSubPage == i ? UIFactory.Gold : UIFactory.White,
+                    x + 4, 6, 142, 37, 17, survivalSubPage == i ? UIFactory.Gold : UIFactory.White,
                     TextAnchor.MiddleCenter);
-                UIFactory.Button(panel, "Survival tab button " + i, x, 3, 121, 43, () =>
+                UIFactory.Button(panel, "Survival tab button " + i, x, 3, 150, 43, () =>
                 {
                     if (survivalSubPage == index) return;
                     survivalSubPage = index;
@@ -76,8 +76,8 @@ namespace xSkills.GUI
             }
             RectTransform content = UIFactory.Rect(panel, "Survival subsection", 0, 51, 645, 720);
             if (survivalSubPage == 0) BuildNutritionSettings(content);
-            else if (survivalSubPage < 3) BuildTemperatureSettings(content, survivalSubPage == 1);
-            else BuildWaterSurvivalSettings(content, survivalSubPage == 3);
+            else if (survivalSubPage == 3) BuildSurvivalPerkSettings(content);
+            else BuildTemperatureSettings(content, survivalSubPage == 1);
         }
 
         private void BuildNutritionSettings(RectTransform panel)

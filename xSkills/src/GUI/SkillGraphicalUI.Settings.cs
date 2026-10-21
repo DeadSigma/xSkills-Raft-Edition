@@ -28,7 +28,6 @@ namespace xSkills.GUI
             {
                 settingsSectionIds.Add("timeworld");
                 settingsSectionIds.Add("survival");
-                settingsSectionIds.Add("balance");
                 settingsSectionIds.Add("diet");
             }
             foreach (SkillData skill in skills) settingsSectionIds.Add("skill:" + skill.Id);
@@ -87,7 +86,6 @@ namespace xSkills.GUI
             if (id == "timeworld") return Localizer.T("settings-timeworld-title");
             if (id == "survival") return Localizer.T("settings-survival-title");
             if (id == "audio") return Localizer.T("settings-audio-title");
-            if (id == "balance") return Localizer.T("settings-balance-title");
             if (id == "diet") return Localizer.T("settings-diet-title");
             if (id.StartsWith("skill:", StringComparison.Ordinal))
                 return Localizer.SkillName(id.Substring(6));
@@ -99,7 +97,6 @@ namespace xSkills.GUI
             if (id == "timeworld") return Localizer.T("settings-timeworld-summary");
             if (id == "survival") return Localizer.T("settings-survival-summary");
             if (id == "audio") return Localizer.T("settings-audio-summary");
-            if (id == "balance") return Localizer.T("settings-balance-summary");
             if (id == "diet") return Localizer.T("settings-diet-summary");
             return Localizer.T("settings-skill-summary");
         }
@@ -139,7 +136,6 @@ namespace xSkills.GUI
             if (id == "audio") BuildSoundSettings(settingsRightOverlay);
             else if (id == "timeworld") BuildTimeWorldSettings(settingsRightOverlay);
             else if (id == "survival") BuildSurvivalSettings(settingsRightOverlay);
-            else if (id == "balance") BuildBalanceSettings(settingsRightOverlay);
             else if (id == "diet") BuildDietRulesPage(settingsRightOverlay);
             else BuildSkillSettings(settingsRightOverlay, id.Substring(6));
         }
@@ -159,39 +155,23 @@ namespace xSkills.GUI
             valueText.text = Mathf.RoundToInt(slider.value) + "%";
             UIFactory.Label(parent, "Volume details", Localizer.T("settings-volume-desc"),
                 22, 152, 585, 130, 20, UIFactory.White, TextAnchor.UpperLeft);
-            SettingsButton(parent, "Test volume", Localizer.T("settings-test-sound"), 22, 300, 260,
+            SettingsButton(parent, "Test volume", Localizer.T("settings-test-sound"), 22, 292, 260,
                 () => SoundPlayer.Play("page"));
-        }
 
-        private void BuildBalanceSettings(RectTransform parent)
-        {
-            if (!Raft_Network.IsHost) return;
-            UIFactory.Label(parent, "Balance explanation", Localizer.T("settings-balance-intro"),
-                22, 16, 590, 100, 19, UIFactory.White, TextAnchor.UpperLeft);
-            SettingsBalanceSlider(parent, "swim", "settings-swim-cap", 125);
-            SettingsBalanceSlider(parent, "dive", "settings-dive-cap", 248);
-            SettingsBalanceSlider(parent, "oxygen", "settings-oxygen-cap", 371);
-            UIFactory.Label(parent, "Balance template notice", Localizer.T("settings-balance-future"),
-                22, 520, 590, 170, 18, UIFactory.Grey, TextAnchor.UpperLeft);
-        }
-
-        private void SettingsBalanceSlider(RectTransform parent, string key, string titleKey, float y)
-        {
-            string prefKey = "xskills_balance_cap_" + key;
-            float current = Mathf.Clamp(PlayerPrefs.GetFloat(prefKey, 50f), 0f, 200f);
-            UIFactory.Label(parent, key + " label", Localizer.T(titleKey),
-                22, y, 570, 33, 22, UIFactory.Gold);
-            Text valueText = UIFactory.Label(parent, key + " percent", "",
-                525, y + 45, 85, 30, 20, UIFactory.White, TextAnchor.MiddleRight);
-            Slider slider = SettingsSlider(parent, key + " slider", 22, y + 50, 480, 0f, 200f,
-                current, value =>
-                {
-                    if (!Raft_Network.IsHost) return;
-                    PlayerPrefs.SetFloat(prefKey, value);
-                    PlayerPrefs.Save();
-                    if (valueText != null) valueText.text = "+" + Mathf.RoundToInt(value) + "%";
-                });
-            valueText.text = "+" + Mathf.RoundToInt(slider.value) + "%";
+            UIFactory.Label(parent, "HUD heading", Localizer.T("settings-hud-heading"),
+                22, 368, 590, 42, 26, UIFactory.Gold);
+            UIFactory.Label(parent, "HUD explanation", Localizer.T("settings-hud-details"),
+                22, 417, 590, 93, 18, UIFactory.White, TextAnchor.UpperLeft);
+            SettingsButton(parent, "HUD enable", Localizer.T(TemperatureHud.Enabled
+                ? "settings-hud-disable" : "settings-hud-enable"), 22, 524, 186,
+                () => { TemperatureHud.SetEnabled(!TemperatureHud.Enabled);
+                    ShowSettingsSection(shownSettingsSection, true); });
+            SettingsButton(parent, "HUD edit", Localizer.T("settings-hud-edit"), 218, 524, 186,
+                () => { if (TemperatureHud.Enabled) { Close(); TemperatureHud.StartEditing(); } });
+            SettingsButton(parent, "HUD reset", Localizer.T("settings-hud-reset"), 414, 524, 186,
+                () => TemperatureHud.ResetLayout());
+            UIFactory.Label(parent, "HUD instructions", Localizer.T("settings-hud-note"),
+                22, 598, 585, 130, 18, UIFactory.Grey, TextAnchor.UpperLeft);
         }
 
         private void BuildDietRulesPage(RectTransform parent)

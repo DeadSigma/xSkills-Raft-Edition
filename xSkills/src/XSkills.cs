@@ -24,6 +24,7 @@ namespace xSkills
             ResourceLoader.Configure(this);
             SoundPlayer.Initialize();
             BodyTemperatureSystem.Initialize();
+            SurvivalPerkSystem.Initialize();
             NotebookForecastSystem.Initialize();
             TimeControlSystem.Initialize();
             WaterSurvivalSystem.Initialize();
@@ -33,14 +34,19 @@ namespace xSkills
             notifications = SkillNotifications.Create();
             try { NativeSkillHotkey.Install(); }
             catch (Exception ex) { Debug.LogError("[xSkills] Hotkey initialization: " + ex); }
+            // HUD запускается отдельно и не блокирует загрузку навыков
+            try { TemperatureHud.Initialize(); }
+            catch (Exception ex) { Debug.LogError("[xSkills] HUD initialization: " + ex); }
         }
 
         public void Update()
         {
             SkillProgressStorage.Tick();
+            SurvivalExperienceSystem.Tick(Time.deltaTime);
             WaterSurvivalSystem.Tick(Time.deltaTime);
             NativeSkillHotkey.Tick();
             BodyTemperatureSystem.Tick(Time.deltaTime, Time.unscaledDeltaTime);
+            TemperatureHud.Tick(ui != null && ui.IsOpen);
             TimeControlSystem.Tick();
             NotebookForecastSystem.Tick();
             if (ui == null) return;
@@ -49,6 +55,7 @@ namespace xSkills
                 if (GameInputGuard.CanToggle(ui.IsOpen))
                 {
                     NativeSkillHotkey.MarkHandled();
+                    if (TemperatureHud.IsEditing) TemperatureHud.EndEditing();
                     ui.Toggle();
                 }
             }
@@ -105,6 +112,7 @@ namespace xSkills
 
         public void OnModUnload()
         {
+            TemperatureHud.Dispose();
             if (ui != null) ui.Dispose();
             ui = null;
             if (notifications != null) notifications.Dispose();
@@ -113,9 +121,11 @@ namespace xSkills
             NotebookForecastSystem.Dispose();
             FishingIntegration.Dispose();
             SkillProgressStorage.Dispose();
+            SurvivalExperienceSystem.Reset();
             WaterSurvivalSystem.Dispose();
             TimeControlSystem.Dispose();
             BodyTemperatureSystem.Dispose();
+            SurvivalPerkSystem.Dispose();
             SoundPlayer.Shutdown();
             Localizer.Reset();
             ResourceLoader.Clear();

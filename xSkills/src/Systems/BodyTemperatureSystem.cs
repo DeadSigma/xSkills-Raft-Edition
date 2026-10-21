@@ -24,6 +24,7 @@ namespace xSkills.Systems
         private const float FireExtraDryingPerSecond = 0.85f;
         private const float HeatScanInterval = 8f;
         private const float SimulationInterval = 0.2f;
+        private const float PassiveTemperatureRate = 1f / 3f;
         private const string MovementHarmonyId = "xskills.bodytemperature.movement";
         private const float PlayerPollInterval = 0.5f;
         private const float ClassificationCacheLifetime = 120f;
@@ -51,6 +52,33 @@ namespace xSkills.Systems
         private static float simulationTime;
         private static float nextWeatherCheck;
         private static float nextShadeCheck;
+        private static readonly RaycastHit[] ShadeRayHits = new RaycastHit[32];
+        private static readonly Collider[] ShadeNearbyColliders = new Collider[256];
+        private static readonly List<Renderer> ShadeRenderers = new List<Renderer>();
+        private static readonly HashSet<Renderer> ShadeRendererSet = new HashSet<Renderer>();
+        private const float ShadeRayLength = 100f;
+        private const float ShadeRenderRadius = 55f;
+        private const int ShadeSampleCount = 9;
+        private const int ShadeRequiredSamples = 7;
+        private const int ShadeMaxMeshTriangles = 20000;
+        private const int ShadeTriangleBudgetPerRay = 65000;
+        private static readonly Vector2[] ShadeSampleOffsets =
+        {
+            new Vector2(0f, 0f),
+            new Vector2(0.40f, 0f), new Vector2(-0.40f, 0f),
+            new Vector2(0f, 0.40f), new Vector2(0f, -0.40f),
+            new Vector2(0.30f, 0.30f), new Vector2(-0.30f, 0.30f),
+            new Vector2(0.30f, -0.30f), new Vector2(-0.30f, -0.30f)
+        };
+        private sealed class ShadeMeshData
+        {
+            public Vector3[] Vertices;
+            public int[] Triangles;
+        }
+        private static readonly Dictionary<Mesh, ShadeMeshData> ShadeMeshCache =
+            new Dictionary<Mesh, ShadeMeshData>();
+        private static float nextShadeRendererRefresh;
+        private static Vector3 lastShadeRendererPosition;
         private static float outsideTemperature = 26f;
         private static float airHumidity = 80f;
         private static float daylight;
@@ -61,6 +89,7 @@ namespace xSkills.Systems
         private static float sunHeatIndex;
         private static bool raining;
         private static bool shaded;
+        private static bool fireIsWarming;
         private static bool sheltered;
         private static bool fullySubmerged;
         private static bool isInWorld;
@@ -81,6 +110,7 @@ namespace xSkills.Systems
         public static float Temperature { get; private set; } = NormalTemperature;
         public static float Wetness { get; private set; }
         public static bool IsShaded { get { return shaded; } }
+        internal static bool IsWarmingByFire { get { return HasPlayer && fireIsWarming; } }
         public static bool HasPlayer { get { return isInWorld && currentPlayer != null; } }
         internal static float OutsideTemperature { get { return outsideTemperature; } }
         internal static float AirHumidity { get { return airHumidity; } }
@@ -187,6 +217,7 @@ namespace xSkills.Systems
             Network_Player player = currentPlayer;
             if (!isInWorld || player == null)
             {
+                fireIsWarming = false;
                 if (isInWorld) ResetWorldState();
                 if (overlayRoot != null && overlayRoot.activeSelf)
                 {
@@ -285,6 +316,7 @@ namespace xSkills.Systems
         private static void Simulate(Network_Player player, float step, bool inWater, bool underwater)
         {
             float fireInfluence = !underwater && !inWater ? GetFireInfluence(player) : 0f;
+            fireIsWarming = fireInfluence > 0.035f && Temperature < MaximumTemperature;
             if (!underwater && !inWater)
             {
                 if (raining && !sheltered)
@@ -309,34 +341,57 @@ namespace xSkills.Systems
                 (Temperature >= NormalTemperature ? 0.013f : 0.008f);
             regulation = Mathf.Clamp(regulation, -0.075f, 0.045f);
 
-            float sunHeat = shaded || underwater || inWater ? 0f : 5.5f * daylight;
-            float apparentHeat = airHeatIndex + sunHeat;
-            sunHeatIndex = apparentHeat;
+            // Индекс жары влияет на теплообмен, но не равен нагреву тела
+            float sunHeat = shaded || raining || underwater || inWater ? 0f : 5.5f * daylight;
+            float humidityBurden = Mathf.Min(Mathf.Max(0f, airHeatIndex - outsideTemperature), 25f) * 0.20f;
+            float effectiveHeat = outsideTemperature + humidityBurden + sunHeat;
+            sunHeatIndex = airHeatIndex + sunHeat;
 
             float heatStrain = underwater || inWater ? 0f :
-                Mathf.Clamp((apparentHeat - 41f) * 0.0026f, 0f, 0.065f);
+                Mathf.Clamp((effectiveHeat - 37f) * 0.0032f, 0f, 0.05f);
+            if (shaded)
+            {
+                float extremeHeat = Mathf.Clamp01((outsideTemperature - 37f) / 3f);
+                heatStrain *= Mathf.Lerp(0.12f, 0.37f, extremeHeat);
+            }
+            bool exposedToRain = raining && !sheltered && !underwater && !inWater;
+            float wetFraction = Mathf.Clamp01(Wetness / 100f);
+            // В очень жарком воздухе дождь охлаждает слабее
+            float rainRelief = exposedToRain ? Mathf.Clamp01((45f - outsideTemperature) / 10f) : 0f;
+            heatStrain *= 1f - rainRelief * Mathf.Lerp(0.45f, 0.80f, wetFraction);
             float cooling = 0f;
+            float rapidWaterCooling = 0f;
             if (underwater || inWater)
             {
-                float waterTemperature = Mathf.Clamp(outsideTemperature - 1.5f, 19f, 30f);
+                float waterTemperature = outsideTemperature < 16f
+                    ? Mathf.Clamp(outsideTemperature - 1.5f, -1.5f, 30f)
+                    : Mathf.Clamp(outsideTemperature - 1.5f, 19f, 30f);
                 float waterCooling = 0.018f + Mathf.Max(0f, 30f - waterTemperature) * 0.0016f;
                 cooling = underwater ? waterCooling : waterCooling * 0.7f;
 
-                // В первые секунды вода быстро отводит избыточное тепло тела
-                float excessHeat = Mathf.Clamp01((Temperature - 37f) / 2f);
-                float contrast = Mathf.Clamp01((Temperature - waterTemperature) / 9f);
-                float entryBoost = 0.18f * excessHeat * contrast *
-                    Mathf.Exp(-waterExposureSeconds / 9f);
-                cooling += entryBoost * (underwater ? 1f : 0.8f);
+                // В тёплой воде охлаждение постепенно сходит на нет возле нормальной температуры тела
+                float tropicalWater = Mathf.InverseLerp(20f, 24f, waterTemperature);
+                float excessAboveNormal = Mathf.Max(0f, Temperature - NormalTemperature);
+                float warmWaterCooling = Mathf.Clamp01(excessAboveNormal / 0.55f);
+                cooling *= Mathf.Lerp(1f, warmWaterCooling, tropicalWater);
+
+                // При перегреве первые секунды в воде быстро снимают излишек тепла
+                float excessHeat = Mathf.Clamp01(excessAboveNormal / 2f);
+                float contrast = Mathf.Clamp01((Temperature - waterTemperature) / 8f);
+                float entryBoost = 0.70f * excessHeat * contrast *
+                    Mathf.Exp(-waterExposureSeconds / 14f);
+                rapidWaterCooling = Mathf.Min(entryBoost * (underwater ? 1f : 0.9f),
+                    excessAboveNormal / Mathf.Max(0.01f, step));
                 waterExposureSeconds += step;
             }
             else
             {
                 // Прохладный воздух охлаждает сильнее при намокании и под дождём
-                float airCooling = Mathf.Max(0f, 27f - outsideTemperature) * 0.0035f;
+                float airCooling = Mathf.Min(18f, Mathf.Max(0f, 27f - outsideTemperature)) * 0.0035f;
                 if (sheltered) airCooling *= 0.5f;
                 airCooling *= 1f + Wetness / 100f * 0.85f;
-                if (raining && !sheltered) airCooling += 0.004f;
+                if (exposedToRain)
+                    airCooling += rainRelief * (0.005f + 0.012f * wetFraction);
                 cooling += airCooling;
                 if (Wetness > 0f)
                 {
@@ -348,9 +403,14 @@ namespace xSkills.Systems
 
             float fireWarming = fireInfluence * FireWarmingPerSecond *
                 (Temperature < NormalTemperature ? 1f : 0.25f);
-            Temperature = Mathf.Clamp(Temperature +
-                (regulation + heatStrain + fireWarming - cooling) * step,
-                MinimumTemperature, MaximumTemperature);
+            float nextTemperature = Temperature +
+                ((regulation + heatStrain - cooling) * PassiveTemperatureRate +
+                fireWarming - rapidWaterCooling) * step;
+            if (immersed && outsideTemperature >= 25.5f && Temperature >= NormalTemperature)
+                nextTemperature = Mathf.Max(NormalTemperature, nextTemperature);
+            if (!immersed && outsideTemperature >= 30f && Temperature >= NormalTemperature)
+                nextTemperature = Mathf.Max(NormalTemperature, nextTemperature);
+            Temperature = Mathf.Clamp(nextTemperature, MinimumTemperature, MaximumTemperature);
 
             ApplyHealthConsequences(player, step);
         }
@@ -434,6 +494,8 @@ namespace xSkills.Systems
             }
             if (string.Equals(input, "forecast", StringComparison.OrdinalIgnoreCase))
                 return WorldEnvironment.ClimateForecast();
+            if (string.Equals(input, "region", StringComparison.OrdinalIgnoreCase))
+                return ColdBiomeSystem.Diagnostic();
             if (string.Equals(input, "effects", StringComparison.OrdinalIgnoreCase)) return Status();
             if (string.Equals(input, "sources", StringComparison.OrdinalIgnoreCase)) return ListHeatSources();
             if (string.Equals(input, "inspect", StringComparison.OrdinalIgnoreCase)) return InspectNearbyBlocks();
@@ -449,8 +511,8 @@ namespace xSkills.Systems
             float value;
             if (!float.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out value) &&
                 !float.TryParse(input, NumberStyles.Float, CultureInfo.CurrentCulture, out value))
-                return russian ? "Использование: bodytemp <31..41|get|reset|climate|forecast|sources|inspect>" :
-                    "Usage: bodytemp <31..41|get|reset|climate|forecast|sources|inspect>";
+                return russian ? "Использование: bodytemp <31..41|get|reset|climate|forecast|region|sources|inspect>" :
+                    "Usage: bodytemp <31..41|get|reset|climate|forecast|region|sources|inspect>";
             if (float.IsNaN(value) || float.IsInfinity(value) ||
                 value < MinimumTemperature || value > MaximumTemperature)
                 return russian ? "Температура тела должна быть от 31 до 41 °C" :
@@ -674,7 +736,7 @@ namespace xSkills.Systems
 
         private static bool IsUnderShelter(Network_Player player)
         {
-            Transform eye = player.CameraTransform;
+            Transform eye = player.PlayerHeadBone != null ? player.PlayerHeadBone : player.CameraTransform;
             Vector3 start = eye != null ? eye.position : player.transform.position + Vector3.up;
             return Physics.Raycast(start + Vector3.up * 0.15f, Vector3.up, 30f,
                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
@@ -682,17 +744,230 @@ namespace xSkills.Systems
 
         private static bool CheckShade(Network_Player player, bool underShelter)
         {
-            if (daylight < 0.02f) return true;
+            if (daylight < 0.02f) return false;
             Light sun = RenderSettings.sun;
             if (sun == null || !sun.isActiveAndEnabled || sun.intensity <= 0f)
                 return underShelter;
             Vector3 toSun = -sun.transform.forward;
-            if (Vector3.Dot(toSun, Vector3.up) < 0.1f) return true;
-            Transform eye = player.CameraTransform;
-            Vector3 start = eye != null ? eye.position : player.transform.position + Vector3.up;
-            RaycastHit hit;
-            return Physics.Raycast(start + toSun * 0.3f, toSun, out hit, 60f,
-                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+            if (Vector3.Dot(toSun, Vector3.up) < 0.1f) return false;
+
+            int coveredSamples;
+            CountShadeHits(player, sun, toSun, out coveredSamples);
+            return coveredSamples >= ShadeRequiredSamples;
+        }
+
+        private static void AddShadeRenderer(Renderer renderer, Vector3 position)
+        {
+            if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy ||
+                renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off ||
+                renderer is ParticleSystemRenderer || renderer.transform.IsChildOf(currentPlayer.transform))
+                return;
+
+            Bounds bounds = renderer.bounds;
+            Vector3 size = bounds.size;
+            if (size.x < 0.05f || size.z < 0.05f || size.y < 0.05f ||
+                size.x > 65f || size.z > 65f || size.y > 65f)
+                return;
+            float dx = bounds.center.x - position.x;
+            float dz = bounds.center.z - position.z;
+            float searchRadius = ShadeRenderRadius + Mathf.Max(size.x, size.z) * 0.5f;
+            if (dx * dx + dz * dz > searchRadius * searchRadius) return;
+
+            if (ShadeRendererSet.Add(renderer)) ShadeRenderers.Add(renderer);
+        }
+
+        private static void RefreshShadeRenderers(Network_Player player)
+        {
+            if (player == null) return;
+            Vector3 position = player.transform.position;
+            float now = Time.unscaledTime;
+            Vector3 delta = position - lastShadeRendererPosition;
+            if (now < nextShadeRendererRefresh &&
+                delta.x * delta.x + delta.z * delta.z < 12f * 12f)
+                return;
+
+            nextShadeRendererRefresh = now + 8f;
+            lastShadeRendererPosition = position;
+            ShadeRenderers.Clear();
+            ShadeRendererSet.Clear();
+
+            // Геометрия деревьев часто отбрасывает тени без физических коллайдеров
+            if (WorldManager.AllLandmarks != null)
+            {
+                foreach (Landmark landmark in WorldManager.AllLandmarks)
+                {
+                    if (landmark == null || !landmark.gameObject.activeInHierarchy) continue;
+                    Vector3 offset = landmark.transform.position - position;
+                    if (offset.x * offset.x + offset.z * offset.z > 250f * 250f) continue;
+                    Renderer[] renderers = landmark.GetComponentsInChildren<Renderer>(true);
+                    foreach (Renderer renderer in renderers)
+                        AddShadeRenderer(renderer, position);
+                }
+            }
+
+            // Отдельно посаженные деревья и постройки не всегда принадлежат Landmark
+            int count = Physics.OverlapSphereNonAlloc(position, ShadeRenderRadius,
+                ShadeNearbyColliders, ~0, QueryTriggerInteraction.Ignore);
+            var visitedRoots = new HashSet<Transform>();
+            for (int i = 0; i < count; i++)
+            {
+                Collider collider = ShadeNearbyColliders[i];
+                if (collider == null || collider.transform.IsChildOf(player.transform)) continue;
+
+                Transform root = collider.transform;
+                Block buildingBlock = collider.GetComponentInParent<Block>();
+                if (buildingBlock != null)
+                    root = buildingBlock.transform;
+                else
+                {
+                    Landmark landmark = collider.GetComponentInParent<Landmark>();
+                    if (landmark != null) continue;
+                    if (root.parent != null) root = root.parent;
+                }
+                if (!visitedRoots.Add(root)) continue;
+                foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+                    AddShadeRenderer(renderer, position);
+            }
+        }
+
+        private static ShadeMeshData GetShadeMeshData(Mesh mesh)
+        {
+            if (mesh == null) return null;
+            ShadeMeshData data;
+            if (ShadeMeshCache.TryGetValue(mesh, out data)) return data;
+
+            if (ShadeMeshCache.Count >= 128) ShadeMeshCache.Clear();
+            if (mesh.isReadable)
+            {
+                try
+                {
+                    int[] triangles = mesh.triangles;
+                    if (triangles.Length > 0 && triangles.Length / 3 <= ShadeMaxMeshTriangles)
+                    {
+                        data = new ShadeMeshData
+                        {
+                            Vertices = mesh.vertices,
+                            Triangles = triangles
+                        };
+                    }
+                }
+                catch (UnityException) { }
+            }
+            ShadeMeshCache[mesh] = data;
+            return data;
+        }
+
+        private static bool IsThinVegetation(Renderer renderer)
+        {
+            string name = renderer.name;
+            return name.IndexOf("bamboo", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("reed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("grass", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("cane", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool RayIntersectsMesh(Ray worldRay, Renderer renderer,
+            ShadeMeshData data, float maxDistance, out float hitDistance)
+        {
+            hitDistance = maxDistance;
+            Matrix4x4 inverse = renderer.transform.worldToLocalMatrix;
+            Vector3 origin = inverse.MultiplyPoint3x4(worldRay.origin);
+            Vector3 direction = inverse.MultiplyVector(worldRay.direction);
+            Vector3[] vertices = data.Vertices;
+            int[] triangles = data.Triangles;
+            for (int i = 0; i < triangles.Length; i += 3)
+            {
+                Vector3 v0 = vertices[triangles[i]];
+                Vector3 edge1 = vertices[triangles[i + 1]] - v0;
+                Vector3 edge2 = vertices[triangles[i + 2]] - v0;
+                Vector3 p = Vector3.Cross(direction, edge2);
+                float determinant = Vector3.Dot(edge1, p);
+                if (Mathf.Abs(determinant) < 0.000001f) continue;
+                float reciprocal = 1f / determinant;
+                Vector3 offset = origin - v0;
+                float u = Vector3.Dot(offset, p) * reciprocal;
+                if (u < 0f || u > 1f) continue;
+                Vector3 q = Vector3.Cross(offset, edge1);
+                float v = Vector3.Dot(direction, q) * reciprocal;
+                if (v < 0f || u + v > 1f) continue;
+                float distance = Vector3.Dot(edge2, q) * reciprocal;
+                if (distance > 0.08f && distance < maxDistance)
+                {
+                    hitDistance = distance;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool TryRendererShade(Ray ray, Light sun)
+        {
+            float nearestDistance = ShadeRayLength;
+            bool found = false;
+            int trianglesRemaining = ShadeTriangleBudgetPerRay;
+            for (int i = 0; i < ShadeRenderers.Count; i++)
+            {
+                Renderer renderer = ShadeRenderers[i];
+                if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy ||
+                    renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off ||
+                    (sun.cullingMask & (1 << renderer.gameObject.layer)) == 0 ||
+                    IsThinVegetation(renderer))
+                    continue;
+
+                float boundsDistance;
+                if (!renderer.bounds.IntersectRay(ray, out boundsDistance) ||
+                    boundsDistance > nearestDistance || boundsDistance > ShadeRayLength)
+                    continue;
+
+                // Bounds используются только для предварительного отсечения, не как доказательство тени
+                MeshRenderer meshRenderer = renderer as MeshRenderer;
+                if (meshRenderer == null) continue;
+                MeshFilter meshFilter = meshRenderer.GetComponent<MeshFilter>();
+                if (meshFilter == null) continue;
+                ShadeMeshData data = GetShadeMeshData(meshFilter.sharedMesh);
+                if (data == null) continue;
+                int triangleCount = data.Triangles.Length / 3;
+                if (triangleCount > trianglesRemaining) continue;
+                trianglesRemaining -= triangleCount;
+
+                float hitDistance;
+                if (!RayIntersectsMesh(ray, renderer, data, nearestDistance,
+                    out hitDistance)) continue;
+                found = true;
+                nearestDistance = hitDistance;
+            }
+            return found;
+        }
+
+        private static void CountShadeHits(Network_Player player, Light sun, Vector3 toSun,
+            out int coveredSamples)
+        {
+            RefreshShadeRenderers(player);
+            Transform eye = player.PlayerHeadBone != null ? player.PlayerHeadBone : player.CameraTransform;
+            Vector3 center = eye != null ? eye.position : player.transform.position + Vector3.up * 1.6f;
+            coveredSamples = 0;
+            for (int i = 0; i < ShadeSampleCount; i++)
+            {
+                Vector2 offset = ShadeSampleOffsets[i];
+                Vector3 start = center + Vector3.up * 0.12f +
+                    new Vector3(offset.x, 0f, offset.y) + toSun * 0.20f;
+                Ray ray = new Ray(start, toSun);
+
+                int count = Physics.RaycastNonAlloc(start, toSun, ShadeRayHits,
+                    ShadeRayLength, ~0, QueryTriggerInteraction.Ignore);
+                bool physicsBlocked = false;
+                for (int j = 0; j < count; j++)
+                {
+                    Collider candidate = ShadeRayHits[j].collider;
+                    if (candidate == null || candidate.transform.IsChildOf(player.transform) ||
+                        candidate.gameObject.layer == LayerMask.NameToLayer("Water")) continue;
+                    physicsBlocked = true;
+                    break;
+                }
+
+                bool geometryBlocked = TryRendererShade(ray, sun);
+                if (physicsBlocked || geometryBlocked) coveredSamples++;
+            }
         }
 
         private static void CreateOverlay()
@@ -847,6 +1122,7 @@ namespace xSkills.Systems
 
         private static void ResetWorldState()
         {
+            ColdBiomeSystem.Reset();
             StopNauseaCapture();
             SetOverlayAlpha(coldOverlay, 0f);
             SetOverlayAlpha(hotOverlay, 0f);
@@ -878,6 +1154,11 @@ namespace xSkills.Systems
             airHeatIndex = 26f;
             nextHeatScan = 0f;
             nextShadeCheck = 0f;
+            nextShadeRendererRefresh = 0f;
+            lastShadeRendererPosition = Vector3.zero;
+            ShadeRenderers.Clear();
+            ShadeRendererSet.Clear();
+            ShadeMeshCache.Clear();
             nextWeatherCheck = 0f;
         }
 

@@ -22,6 +22,9 @@ namespace xSkills.GUI
         }
 
         private readonly List<Drop> drops = new List<Drop>();
+        private float pendingSurvivalExperience;
+        private Guid pendingSurvivalWorld;
+        private const float SurvivalNotificationThreshold = 2f;
         private RectTransform hud;
         private RectTransform levelPopup;
         private CanvasGroup levelGroup;
@@ -87,6 +90,24 @@ namespace xSkills.GUI
         private void OnExperience(SkillData skill, float amount)
         {
             if (skill == null || amount <= 0f || !isActiveAndEnabled) return;
+
+            if (string.Equals(skill.Id, "survival", StringComparison.OrdinalIgnoreCase))
+            {
+                Guid world = SaveAndLoad.WorldGuid;
+                if (pendingSurvivalWorld != world)
+                {
+                    pendingSurvivalWorld = world;
+                    pendingSurvivalExperience = 0f;
+                }
+
+                pendingSurvivalExperience += amount;
+                if (pendingSurvivalExperience + 0.0001f < SurvivalNotificationThreshold) return;
+
+                int blocks = Mathf.FloorToInt((pendingSurvivalExperience + 0.0001f) / SurvivalNotificationThreshold);
+                amount = blocks * SurvivalNotificationThreshold;
+                pendingSurvivalExperience = Mathf.Max(0f, pendingSurvivalExperience - amount);
+            }
+
             // Близкие начисления одного навыка складываются
             foreach (Drop existing in drops)
             {

@@ -78,6 +78,8 @@ namespace xSkills.Systems
         private const string PrefMaximumBonusHP = "xskills_diet_max_bonus_hp";
         private const string PrefDailyLossPercent = "xskills_diet_daily_loss_percent";
         private const string PrefDeathLossPercent = "xskills_diet_death_loss_percent";
+        private static readonly System.Reflection.FieldInfo NormalHealthField =
+            AccessTools.Field(typeof(Network_Entity), "stat_health");
         private static readonly float[] levels = new float[4];
         private static Harmony harmony;
         private static Network_Player currentPlayer;
@@ -203,8 +205,10 @@ namespace xSkills.Systems
                 Canvas.willRenderCanvases -= UpdateHealthHud;
                 Canvas.willRenderCanvases += UpdateHealthHud;
                 harmony = new Harmony(HarmonyId);
-                harmony.CreateClassProcessor(typeof(ConsumePatch)).Patch();
-                harmony.CreateClassProcessor(typeof(DeathPatch)).Patch();
+                harmony.Patch(AccessTools.Method(typeof(PlayerStats), "Consume", new[] { typeof(Item_Base) }),
+                    postfix: new HarmonyMethod(typeof(DietSystem), nameof(AfterConsume)));
+                harmony.Patch(AccessTools.Method(typeof(PlayerStats), "SendOnDeath"),
+                    postfix: new HarmonyMethod(typeof(DietSystem), nameof(AfterDeath)));
             }
             catch (Exception ex)
             {
@@ -360,7 +364,9 @@ namespace xSkills.Systems
 
         private static Stat_Health GetNormalHealth(PlayerStats stats)
         {
-            return stats != null ? stats.stat_health : null;
+            if (stats == null || NormalHealthField == null) return null;
+            try { return NormalHealthField.GetValue(stats) as Stat_Health; }
+            catch (Exception) { return null; }
         }
 
         private static void ApplyHealthCapacity(bool restoreIncrease, bool firstLoad)
@@ -386,7 +392,7 @@ namespace xSkills.Systems
                 Mathf.Abs(health.statTarget.Max - appliedHealthTargetMax) > .05f)
                 baseHealthTargetMax = Mathf.Max(1f, health.statTarget.Max);
 
-            float desiredMax = baseHealthMax + ComputeCapacity();
+            float desiredMax = baseHealthMax + ComputeCapacity() + SurvivalPerkSystem.ExtraHealth(baseHealthMax);
             float difference = desiredMax - appliedHealthMax;
             bool wasFull = firstLoad && health.Value >= baseHealthMax - .05f;
             bool maxChanged = Mathf.Abs(health.Max - desiredMax) > .001f;
@@ -395,7 +401,8 @@ namespace xSkills.Systems
 
             if (health.statTarget != null)
             {
-                float desiredTargetMax = Mathf.Max(1f, baseHealthTargetMax) + ComputeCapacity();
+                float desiredTargetMax = Mathf.Max(1f, baseHealthTargetMax) + ComputeCapacity() +
+                    SurvivalPerkSystem.ExtraHealth(baseHealthMax);
                 if (Mathf.Abs(health.statTarget.Max - desiredTargetMax) > .001f)
                     health.statTarget.SetMaxValue(desiredTargetMax);
                 appliedHealthTargetMax = desiredTargetMax;
@@ -416,24 +423,6 @@ namespace xSkills.Systems
 
             if ((maxChanged || valueChanged) && health.statTarget != null)
                 health.statTarget.Value = health.Value;
-        }
-
-        [HarmonyPatch(typeof(PlayerStats), "Consume", new Type[] { typeof(Item_Base) })]
-        private static class ConsumePatch
-        {
-            private static void Postfix(PlayerStats __instance, Item_Base edibleItem)
-            {
-                AfterConsume(__instance, edibleItem);
-            }
-        }
-
-        [HarmonyPatch(typeof(PlayerStats), "SendOnDeath")]
-        private static class DeathPatch
-        {
-            private static void Postfix(PlayerStats __instance)
-            {
-                AfterDeath(__instance);
-            }
         }
 
         private static void AfterConsume(PlayerStats __instance, Item_Base edibleItem)

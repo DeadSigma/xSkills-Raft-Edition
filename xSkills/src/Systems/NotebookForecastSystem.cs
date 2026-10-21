@@ -1,7 +1,6 @@
 using HMLLibrary;
 using HarmonyLib;
 using UnityEngine;
-using FMODUnity;
 using xSkills.GUI;
 using xSkills.Skills;
 
@@ -24,11 +23,6 @@ namespace xSkills.Systems
                 harmony = new Harmony(HarmonyId);
                 harmony.CreateClassProcessor(typeof(NotebookForecastLeftPatch)).Patch();
                 harmony.CreateClassProcessor(typeof(NotebookForecastRightPatch)).Patch();
-                harmony.CreateClassProcessor(typeof(NotebookForecastArrowsPatch)).Patch();
-                harmony.CreateClassProcessor(typeof(NotebookForecastVanillaBookmarkPatch)).Patch();
-                harmony.CreateClassProcessor(typeof(NotebookForecastVanillaPagePatch)).Patch();
-                harmony.CreateClassProcessor(typeof(NotebookForecastSetPagePatch)).Patch();
-                harmony.CreateClassProcessor(typeof(NotebookForecastPageActivationPatch)).Patch();
             }
             catch (System.Exception ex)
             {
@@ -42,7 +36,7 @@ namespace xSkills.Systems
         {
             SkillData skill = SkillCatalog.Find("survival");
             AbilityData ability = skill == null ? null : skill.FindAbility("forecast");
-            return skill != null && skill.Level >= 2 && ability != null && ability.PreviewTier > 0;
+            return skill != null && ability != null && skill.Level >= ability.RequiredLevel && ability.PreviewTier > 0;
         }
 
         internal static void Tick()
@@ -70,19 +64,6 @@ namespace xSkills.Systems
             if (attachedView != null) attachedView.Sync(IsUnlocked());
         }
 
-        internal static void OverrideVanillaArrows(NoteBookUI target,
-            GameObject left, GameObject right, GameObject leftConsole, GameObject rightConsole)
-        {
-            if (attachedBook == target && attachedView != null)
-                attachedView.OverrideVanillaArrows(left, right, leftConsole, rightConsole);
-        }
-
-        internal static void OnVanillaNavigation(NoteBookUI target)
-        {
-            if (attachedBook == target && attachedView != null)
-                attachedView.OnVanillaNavigation();
-        }
-
         private static void ClearView()
         {
             if (attachedView != null) UnityEngine.Object.Destroy(attachedView);
@@ -102,81 +83,20 @@ namespace xSkills.Systems
     [HarmonyPatch(typeof(NoteBookUI), "FlipPageLeft")]
     internal static class NotebookForecastLeftPatch
     {
-        private static bool Prefix(NoteBookUI __instance, StudioEventEmitter ___soundemitter_FlipPage)
+        private static bool Prefix(NoteBookUI __instance)
         {
             NotebookForecastUI view = __instance.GetComponent<NotebookForecastUI>();
-            if (view == null || !view.HandleVanillaPageFlip(-1)) return true;
-            if (___soundemitter_FlipPage != null) ___soundemitter_FlipPage.Play();
-            return false;
+            return view == null || !view.HandleVanillaPageFlip(-1);
         }
     }
 
     [HarmonyPatch(typeof(NoteBookUI), "FlipPageRight")]
     internal static class NotebookForecastRightPatch
     {
-        private static bool Prefix(NoteBookUI __instance, StudioEventEmitter ___soundemitter_FlipPage)
+        private static bool Prefix(NoteBookUI __instance)
         {
             NotebookForecastUI view = __instance.GetComponent<NotebookForecastUI>();
-            if (view == null || !view.HandleVanillaPageFlip(1)) return true;
-            if (___soundemitter_FlipPage != null) ___soundemitter_FlipPage.Play();
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(NoteBookUI), "Update")]
-    internal static class NotebookForecastArrowsPatch
-    {
-        private static void Postfix(NoteBookUI __instance,
-            GameObject ___leftPageFlipImage, GameObject ___rightPageFlipImage,
-            GameObject ___leftPageFlipImageConsole, GameObject ___rightPageFlipImageConsole)
-        {
-            NotebookForecastSystem.OverrideVanillaArrows(__instance,
-                ___leftPageFlipImage, ___rightPageFlipImage,
-                ___leftPageFlipImageConsole, ___rightPageFlipImageConsole);
-        }
-    }
-}
-
-namespace xSkills.Systems
-{
-    [HarmonyPatch(typeof(NoteBookUI), "FlipToPageNetwork")]
-    internal static class NotebookForecastVanillaBookmarkPatch
-    {
-        private static void Prefix(NoteBookUI __instance)
-        {
-            NotebookForecastSystem.OnVanillaNavigation(__instance);
-        }
-    }
-
-    [HarmonyPatch(typeof(NoteBookUI), "FlipToPageLocally")]
-    internal static class NotebookForecastVanillaPagePatch
-    {
-        private static void Prefix(NoteBookUI __instance)
-        {
-            NotebookForecastSystem.OnVanillaNavigation(__instance);
-        }
-    }
-
-    [HarmonyPatch(typeof(NoteBookUI), "SetPageIndex")]
-    internal static class NotebookForecastSetPagePatch
-    {
-        private static void Prefix(NoteBookUI __instance)
-        {
-            NotebookForecastSystem.OnVanillaNavigation(__instance);
-        }
-    }
-}
-
-namespace xSkills.Systems
-{
-    [HarmonyPatch(typeof(NoteBookPage), "SetPageActive")]
-    internal static class NotebookForecastPageActivationPatch
-    {
-        private static void Postfix(NoteBookPage __instance, bool value)
-        {
-            if (!value) return;
-            NoteBookUI notebook = __instance.GetComponentInParent<NoteBookUI>();
-            if (notebook != null) NotebookForecastSystem.OnVanillaNavigation(notebook);
+            return view == null || !view.HandleVanillaPageFlip(1);
         }
     }
 }

@@ -189,7 +189,9 @@ namespace xSkills.Systems
             get
             {
                 WaterSurvivalSettings s = WaterSurvivalSettings.Current;
-                return s == null ? 30f : Mathf.Max(1f, s.OxygenLossPerSecond - progression.LungLevel * s.OxygenLossReduction);
+                float baseLoss = s == null ? 30f : Mathf.Max(1f,
+                    s.OxygenLossPerSecond - progression.LungLevel * s.OxygenLossReduction);
+                return Mathf.Max(0.1f, baseLoss * SurvivalPerkSystem.OxygenConsumptionMultiplier);
             }
         }
 

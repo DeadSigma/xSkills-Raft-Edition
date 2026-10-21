@@ -10,6 +10,8 @@ namespace xSkills.Systems
     {
         // Превью календаря начинается первого мая первого года
         private static readonly DateTime CalendarEpoch = new DateTime(1, 5, 1);
+        private static readonly CultureInfo RussianCalendar = CultureInfo.GetCultureInfo("ru-RU");
+        private static readonly CultureInfo EnglishCalendar = CultureInfo.GetCultureInfo("en-US");
         private const float HoursPerDay = 24f;
         private const float FullCircle = Mathf.PI * 2f;
 
@@ -17,6 +19,7 @@ namespace xSkills.Systems
         {
             public string Date;
             public string Clock;
+            public string MonthYear;
             public string Weather;
             public float Temperature;
             public float RelativeHumidity;
@@ -113,14 +116,21 @@ namespace xSkills.Systems
             result.Date = FormatDate(raw.Date);
             result.Clock = (minuteOfDay / 60).ToString("00") + ":" +
                 (minuteOfDay % 60).ToString("00");
+            string month = raw.Date.ToString("MMMM", Localizer.Code == "ru" ? RussianCalendar : EnglishCalendar);
+            result.MonthYear = Localizer.F("hud-month-year", month, raw.Date.Year);
             result.Weather = FormatWeather(raw.NormalizedWeather);
             result.WeatherCode = raw.WeatherCode;
             AirState climate = CalculateAir(raw.Day, raw.Date.DayOfYear, raw.Hour,
                 ClassifyWeather(raw.NormalizedWeather));
-            result.Temperature = climate.Temperature;
-            result.RelativeHumidity = climate.Humidity;
+            bool coldBiome;
+            float localTemperature = ColdBiomeSystem.Apply(climate.Temperature,
+                climate.Daylight, out coldBiome);
+            result.Temperature = localTemperature;
+            result.RelativeHumidity = coldBiome ? Mathf.Lerp(climate.Humidity, 75f,
+                Mathf.Clamp01((climate.Temperature - localTemperature) / 35f)) : climate.Humidity;
             result.Daylight = climate.Daylight;
-            result.Climate = DescribeClimatePeriod(climate.Climate, raw.Hour);
+            result.Climate = coldBiome ? (Localizer.Code == "ru" ? "Холодный биом" :
+                "Cold biome") : DescribeClimatePeriod(climate.Climate, raw.Hour);
             return true;
         }
 
@@ -132,8 +142,11 @@ namespace xSkills.Systems
 
             WeatherKind weather = ClassifyWeather(raw.NormalizedWeather);
             AirState climate = CalculateAir(raw.Day, raw.Date.DayOfYear, raw.Hour, weather);
-            result.Temperature = climate.Temperature;
-            result.RelativeHumidity = climate.Humidity;
+            bool coldBiome;
+            result.Temperature = ColdBiomeSystem.Apply(climate.Temperature,
+                climate.Daylight, out coldBiome);
+            result.RelativeHumidity = coldBiome ? Mathf.Lerp(climate.Humidity, 75f,
+                Mathf.Clamp01((climate.Temperature - result.Temperature) / 35f)) : climate.Humidity;
             result.Daylight = climate.Daylight;
             result.IsRaining = weather == WeatherKind.Rain || weather == WeatherKind.Storm;
             return true;

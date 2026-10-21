@@ -47,6 +47,7 @@ namespace xSkills.GUI
         private AbilityData selectedAbility;
         private string page = "";
         private bool isOpen;
+        private RectTransform hudConsentOverlay;
         private bool oldCursorVisible;
         private CursorLockMode oldCursorLock;
         public bool IsOpen { get { return isOpen; } }
@@ -111,13 +112,67 @@ namespace xSkills.GUI
             pointerInput.Reset();
             if (Localizer.Refresh()) RefreshLanguage();
             ResizeWindow();
+            try { ShowHudConsentIfNeeded(); }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[xSkills HUD] Consent window failed: " + ex);
+                DismissHudConsent();
+            }
             SoundPlayer.Play("open");
+        }
+
+        private void ShowHudConsentIfNeeded()
+        {
+            if (!TemperatureHud.ConsentPending || window == null || hudConsentOverlay != null) return;
+
+            // Запрос показывается внутри xSkills - курсор игры не захватывается фоновым HUD
+            hudConsentOverlay = UIFactory.Rect(window, "HUD opt-in", 0, 0, WindowW, WindowH);
+            Image shield = UIFactory.Fill(hudConsentOverlay, "HUD overlay", 0, 0,
+                WindowW, WindowH, new Color(.02f, .02f, .025f, .82f));
+            shield.raycastTarget = true;
+
+            const float left = 495f;
+            const float top = 305f;
+            const float width = 810f;
+            UIFactory.Fill(hudConsentOverlay, "HUD dialog background", left, top,
+                width, 422f, new Color(.16f, .125f, .095f, 1f));
+            UIFactory.Label(hudConsentOverlay, "HUD title", Localizer.T("hud-consent-title"),
+                left + 35f, top + 28f, width - 70f, 58f, 34, UIFactory.Gold, TextAnchor.MiddleCenter);
+            UIFactory.Label(hudConsentOverlay, "HUD details", Localizer.T("hud-consent-description"),
+                left + 48f, top + 104f, width - 96f, 160f, 26, UIFactory.White, TextAnchor.MiddleCenter);
+
+            const float buttonTop = top + 310f;
+            Image enableFill = UIFactory.Fill(hudConsentOverlay, "HUD yes background",
+                left + 40f, buttonTop, 350f, 72f, new Color(.24f, .36f, .17f, 1f));
+            enableFill.raycastTarget = false;
+            UIFactory.Label(hudConsentOverlay, "HUD yes text", Localizer.T("hud-consent-accept"),
+                left + 40f, buttonTop + 10f, 350f, 52f, 28, UIFactory.White, TextAnchor.MiddleCenter);
+            UIFactory.Button(hudConsentOverlay, "HUD accept", left + 40f, buttonTop, 350f, 72f,
+                () => { TemperatureHud.SetEnabled(true); DismissHudConsent(); });
+
+            Image declineFill = UIFactory.Fill(hudConsentOverlay, "HUD no background",
+                left + 420f, buttonTop, 350f, 72f, new Color(.27f, .22f, .19f, 1f));
+            declineFill.raycastTarget = false;
+            UIFactory.Label(hudConsentOverlay, "HUD no text", Localizer.T("hud-consent-reject"),
+                left + 420f, buttonTop + 10f, 350f, 52f, 28, UIFactory.White, TextAnchor.MiddleCenter);
+            UIFactory.Button(hudConsentOverlay, "HUD decline", left + 420f, buttonTop, 350f, 72f,
+                () => { TemperatureHud.SetEnabled(false); DismissHudConsent(); });
+        }
+
+        private void DismissHudConsent()
+        {
+            if (hudConsentOverlay == null) return;
+            hudConsentOverlay.gameObject.SetActive(false);
+            UnityEngine.Object.Destroy(hudConsentOverlay.gameObject);
+            hudConsentOverlay = null;
+            if (pointerInput != null) pointerInput.Reset();
         }
 
         public void Close()
         {
             if (!isOpen) return;
             isOpen = false;
+            DismissHudConsent();
             CloseTransfer(false);
             SoundPlayer.Play("close");
             if (pointerInput != null) pointerInput.Reset();
@@ -208,7 +263,12 @@ namespace xSkills.GUI
         private void OnProgressChanged()
         {
             if (canvasObject == null) return;
-            if (page == "_spec" || page == "_info" || page == "_home" || page == "_settings") SelectPage(page);
+            if (page == "_settings")
+            {
+                if (shownSettingsSection >= 0) ShowSettingsSection(shownSettingsSection, true);
+                return;
+            }
+            if (page == "_spec" || page == "_info" || page == "_home") SelectPage(page);
             else if (selectedSkill != null) SelectSkill(selectedSkill);
         }
 

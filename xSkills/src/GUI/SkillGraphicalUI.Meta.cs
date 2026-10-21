@@ -9,7 +9,7 @@ namespace xSkills.GUI
     {
         private int pinnedInfoSection = -1;
         private int shownInfoSection = -1;
-        private readonly Image[] infoFrames = new Image[6];
+        private readonly Image[] infoFrames = new Image[7];
 
         private void UnpinInfoSection()
         {
@@ -44,26 +44,45 @@ namespace xSkills.GUI
 
             UIFactory.Label(abilitiesRoot, "Info pin hint", Localizer.T("ui-info-pin-hint"),
                 35, 132, 950, 25, 17, UIFactory.Grey);
-            for (int i = 1; i <= 6; i++)
+
+            const float viewportHeight = 635f;
+            const float rowStep = 133f;
+            RectTransform viewport = UIFactory.Rect(abilitiesRoot, "Information list viewport", 35, 164, 950, viewportHeight);
+            viewport.gameObject.AddComponent<RectMask2D>();
+            Image hitbox = viewport.gameObject.AddComponent<Image>();
+            hitbox.color = new Color(0f, 0f, 0f, .001f);
+            hitbox.raycastTarget = true;
+            ScrollRect scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            scroll.horizontal = false;
+            scroll.vertical = true;
+            scroll.inertia = false;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.scrollSensitivity = 75f;
+            RectTransform list = UIFactory.Rect(viewport, "Information rows", 0, 0, 950, 7f * rowStep);
+            scroll.content = list;
+            scroll.viewport = viewport;
+
+            for (int i = 1; i <= 7; i++)
             {
                 int section = i;
-                float y = 164 + (i - 1) * 104;
-                Image background = UIFactory.Image(abilitiesRoot, "Info " + i + " bg", "elements",
-                    "abilitybox_bg_info", 35, y, 950, 98);
-                UIFactory.Image(abilitiesRoot, "Info " + i + " shadow", "elements",
-                    "ability_shadow", 35, y, 950, 98, 30);
-                Image frame = UIFactory.Image(abilitiesRoot, "Info " + i + " frame", "elements",
-                    "abilitybox_frame_inactive", 35, y, 950, 98, 15);
+                float y = (i - 1) * rowStep;
+                UIFactory.Image(list, "Info " + i + " bg", "elements",
+                    "abilitybox_bg_info", 0, y, 950, 116);
+                UIFactory.Image(list, "Info " + i + " shadow", "elements",
+                    "ability_shadow", 0, y, 950, 116, 30);
+                Image frame = UIFactory.Image(list, "Info " + i + " frame", "elements",
+                    "abilitybox_frame_inactive", 0, y, 950, 116, 15);
                 infoFrames[i - 1] = frame;
-                UIFactory.Label(abilitiesRoot, "Info " + i + " title", Localizer.T("custominfo-title-" + i),
-                    55, y + 7, 915, 36, 25, UIFactory.Gold);
-                UIFactory.Label(abilitiesRoot, "Info " + i + " summary", Localizer.T("custominfo-shortdesc-" + i),
-                    55, y + 45, 915, 43, 18, UIFactory.White);
-                UIFactory.Button(abilitiesRoot, "Info " + i + " hover", 35, y, 950, 98,
+                UIFactory.Label(list, "Info " + i + " title", Localizer.T("custominfo-title-" + i),
+                    20, y + 13, 915, 43, 29, UIFactory.Gold);
+                UIFactory.Label(list, "Info " + i + " summary", Localizer.T("custominfo-shortdesc-" + i),
+                    20, y + 57, 915, 43, 19, UIFactory.White);
+                UIFactory.Button(list, "Info " + i + " hover", 0, y, 950, 116,
                     () => PinInfoSection(section),
                     () => { if (pinnedInfoSection < 0) ShowInfoSection(section); RefreshInfoFrames(); },
                     () => { if (pinnedInfoSection < 0) ShowInfoIntro(); RefreshInfoFrames(); });
             }
+            scroll.verticalNormalizedPosition = 1f;
             ShowInfoIntro(true);
         }
 
@@ -81,8 +100,8 @@ namespace xSkills.GUI
             if (!force && shownInfoSection == index) return;
             shownInfoSection = index;
             string detail = Localizer.T("custominfo-details-" + index);
-            if (index == 1)
-                detail += "\n\n" + Localizer.T("custominfo-commands");
+            if (index == 7)
+                detail = Localizer.T("custominfo-commands");
             SetRightPanel(Localizer.T("custominfo-title-" + index), detail);
         }
 

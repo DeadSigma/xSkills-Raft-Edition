@@ -425,7 +425,8 @@ namespace xSkills.GUI
             else
             {
                 SetRightPanel(Localizer.AbilityName(selectedAbility.Id),
-                    Localizer.AbilityDescription(selectedAbility.Id),
+                    xSkills.Systems.SurvivalPerkSystem.DescribeAbility(selectedAbility,
+                        Localizer.AbilityDescription(selectedAbility.Id)),
                     Localizer.F("ui-tier", selectedAbility.PreviewTier, selectedAbility.MaxTier));
                 tooltipRequirements.text = selectedAbility.RequiredLevel > selectedSkill.PreviewLevel
                     ? Localizer.F("ui-required-level", selectedAbility.RequiredLevel) : "";
