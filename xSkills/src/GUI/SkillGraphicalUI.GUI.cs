@@ -35,6 +35,7 @@ namespace xSkills.GUI
         private Text tooltipTier;
         private Text tooltipDescription;
         private Text tooltipRequirements;
+        private Text tooltipCurrentValues;
         private Text helpLearn;
         private Text helpUnlearn;
         private Image homeTabImage;
@@ -340,6 +341,11 @@ namespace xSkills.GUI
             tooltipDescription.supportRichText = true;
             descriptionScroll.content = (RectTransform)tooltipDescription.transform;
             descriptionScroll.viewport = descriptionViewport;
+            tooltipCurrentValues = UIFactory.Label(rightInfo, "Current perk values", "",
+                9, 260, 352, 150, 19, UIFactory.Grey, TextAnchor.UpperLeft);
+            tooltipCurrentValues.supportRichText = true;
+            tooltipCurrentValues.verticalOverflow = VerticalWrapMode.Overflow;
+            tooltipCurrentValues.gameObject.SetActive(false);
             requirementDivider = UIFactory.Image(rightInfo, "Requirements line", "elements", "tooltip_sep", 4, 260, 366, 3);
             tooltipRequirements = UIFactory.Label(rightInfo, "Requirements", "", 9, 270, 352, 350, 19, UIFactory.Green, TextAnchor.UpperLeft);
             // Подсказка располагается у нижней границы окна, а не внутри боковой панели
@@ -389,6 +395,7 @@ namespace xSkills.GUI
             helpLearn.gameObject.SetActive(!meta);
             helpUnlearn.gameObject.SetActive(!meta);
             tooltipRequirements.gameObject.SetActive(!meta);
+            if (tooltipCurrentValues != null) tooltipCurrentValues.gameObject.SetActive(!meta && !string.IsNullOrEmpty(tooltipCurrentValues.text));
             requirementDivider.gameObject.SetActive(!meta);
         }
 
@@ -397,6 +404,7 @@ namespace xSkills.GUI
             tooltipTitle.text = title;
             tooltipTier.text = tier;
             tooltipDescription.text = Localizer.FormatText(body);
+            ClearCurrentValues();
             if (descriptionScroll != null && descriptionViewport != null)
             {
                 RectTransform textRect = (RectTransform)tooltipDescription.transform;
@@ -428,6 +436,7 @@ namespace xSkills.GUI
                     xSkills.Systems.SurvivalPerkSystem.DescribeAbility(selectedAbility,
                         Localizer.AbilityDescription(selectedAbility.Id)),
                     Localizer.F("ui-tier", selectedAbility.PreviewTier, selectedAbility.MaxTier));
+                UpdateCurrentPerkValues();
                 tooltipRequirements.text = selectedAbility.RequiredLevel > selectedSkill.PreviewLevel
                     ? Localizer.F("ui-required-level", selectedAbility.RequiredLevel) : "";
             }

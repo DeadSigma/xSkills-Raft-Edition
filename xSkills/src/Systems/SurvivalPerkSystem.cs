@@ -63,15 +63,64 @@ namespace xSkills.Systems
             return Mathf.Clamp(ability.PreviewTier, 0, Mathf.Min(allowed, ability.MaxTier));
         }
 
+        internal static float CurrentHealthBonusPercent
+        {
+            get
+            {
+                int tier = Tier("longlife");
+                if (tier == 0) return 0f;
+                SkillData survival = SkillCatalog.Find("survival");
+                int level = survival != null ? survival.Level : 1;
+                return Mathf.Min(Value("longlife", tier, 2),
+                    Value("longlife", tier, 0) + level * Value("longlife", tier, 1));
+            }
+        }
+
         internal static float ExtraHealth(float baseMaximum)
         {
-            int tier = Tier("longlife");
-            if (tier == 0 || baseMaximum <= 0f) return 0f;
-            SkillData survival = SkillCatalog.Find("survival");
-            int level = survival != null ? survival.Level : 1;
-            float percent = Mathf.Min(Value("longlife", tier, 2),
-                Value("longlife", tier, 0) + level * Value("longlife", tier, 1));
-            return baseMaximum * percent / 100f;
+            if (baseMaximum <= 0f) return 0f;
+            return baseMaximum * CurrentHealthBonusPercent / 100f;
+        }
+
+        internal static float? CurrentLastStandChancePercent
+        {
+            get
+            {
+                int tier = Tier("laststand");
+                if (tier == 0) return null;
+                Network_Player player = LocalPlayer();
+                if (player == null) return null;
+                Stat_Health health = NormalHealth(player.Stats);
+                if (health == null) return null;
+                return LastStandChance(health, player.Stats, tier) * 100f;
+            }
+        }
+
+        private static float LastStandChance(Stat_Health health, PlayerStats stats, int tier)
+        {
+            if (health == null || health.Max <= 0f || stats == null) return 0f;
+            float bonusHealth = stats.stat_BonusHealth != null ? stats.stat_BonusHealth.Value : 0f;
+            float bonusMax = stats.stat_BonusHealth != null ? stats.stat_BonusHealth.Max : 0f;
+            float maxHealth = health.Max + bonusMax;
+            if (maxHealth <= 0f) return 0f;
+            return Mathf.Clamp01(((health.Value + bonusHealth) / maxHealth) *
+                Mathf.Max(0, Value("laststand", tier, 0)) / 100f);
+        }
+
+        internal static float CurrentPhotosynthesisBonusPercent
+        {
+            get { return PhotosynthesisBonus(Tier("photosynthesis")) * 100f; }
+        }
+
+        private static float PhotosynthesisBonus(int tier)
+        {
+            if (tier <= 0) return 0f;
+            float daylight = BodyTemperatureSystem.Daylight;
+            if (daylight >= .2f && !BodyTemperatureSystem.IsShaded && !BodyTemperatureSystem.IsRaining)
+                return Value("photosynthesis", tier, 0) * Mathf.Clamp01((daylight - .2f) / .8f) / 100f;
+            if (daylight < .1f)
+                return -Value("photosynthesis", tier, 1) * (1f - Mathf.Clamp01(daylight / .1f)) / 100f;
+            return 0f;
         }
 
         internal static float OxygenConsumptionMultiplier
@@ -146,9 +195,7 @@ namespace xSkills.Systems
             float bonusHealth = __instance.stat_BonusHealth != null ? __instance.stat_BonusHealth.Value : 0f;
             float remaining = health.Value + bonusHealth;
             if (remaining <= .1f || damage < remaining) return;
-            float chance = Mathf.Clamp01((remaining / (health.Max +
-                (__instance.stat_BonusHealth != null ? __instance.stat_BonusHealth.Max : 0f))) *
-                Mathf.Max(0, Value("laststand", Tier("laststand"), 0)) / 100f);
+            float chance = LastStandChance(health, __instance, Tier("laststand"));
             if (UnityEngine.Random.value < chance)
                 damage = Mathf.Max(0f, remaining - .1f);
         }
@@ -167,16 +214,7 @@ namespace xSkills.Systems
             float regenerated = __instance.Value - __state;
             if (regenerated <= 0f) return;
 
-            float daylight = BodyTemperatureSystem.Daylight;
-            float bonus = 0f;
-            if (daylight >= 0.2f && !BodyTemperatureSystem.IsShaded && !BodyTemperatureSystem.IsRaining)
-            {
-                bonus = Value("photosynthesis", tier, 0) * Mathf.Clamp01((daylight - .2f) / .8f) / 100f;
-            }
-            else if (daylight < .1f)
-            {
-                bonus = -Value("photosynthesis", tier, 1) * (1f - Mathf.Clamp01(daylight / .1f)) / 100f;
-            }
+            float bonus = PhotosynthesisBonus(tier);
             if (Mathf.Abs(bonus) > .0001f)
                 __instance.Value = Mathf.Clamp(__state + regenerated * (1f + bonus), 0f, __instance.Max);
         }

@@ -98,6 +98,7 @@ namespace xSkills.GUI
             if (id == "survival") return Localizer.T("settings-survival-summary");
             if (id == "audio") return Localizer.T("settings-audio-summary");
             if (id == "diet") return Localizer.T("settings-diet-summary");
+            if (id == "skill:survival") return Localizer.T("settings-survival-skill-summary");
             return Localizer.T("settings-skill-summary");
         }
 
@@ -211,6 +212,7 @@ namespace xSkills.GUI
 
         private void BuildSkillSettings(RectTransform parent, string skillId)
         {
+            if (skillId == "survival") { BuildSurvivalPerkSettings(parent); return; }
             if (skillId == "fishing") { BuildFishingIntegrationSettings(parent); return; }
             UIFactory.Label(parent, "Skill settings summary", Localizer.F("settings-skill-heading", Localizer.SkillName(skillId)),
                 22, 26, 585, 55, 26, UIFactory.Gold);

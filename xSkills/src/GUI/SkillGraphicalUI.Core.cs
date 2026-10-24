@@ -28,6 +28,7 @@ namespace xSkills.GUI
         private SkillPointerInput pointerInput;
         private readonly Dictionary<EventSystem, bool> previousEventSystems = new Dictionary<EventSystem, bool>();
         private Vector2 abilityParallax;
+        private float perkValuesUpdateElapsed;
         private readonly List<SkillData> skills = SurvivalFirst(SkillCatalog.Create());
 
         private static List<SkillData> SurvivalFirst(List<SkillData> registered)
@@ -199,6 +200,13 @@ namespace xSkills.GUI
             if (pointerInput != null) pointerInput.Tick();
             if (page == "_home") TickPlayerHome(dt);
             else if (page == "_settings") UpdateClimateRateLabel();
+            else if (selectedAbility != null &&
+                (selectedAbility.Id == "laststand" || selectedAbility.Id == "photosynthesis") &&
+                (perkValuesUpdateElapsed += dt) >= .2f)
+            {
+                perkValuesUpdateElapsed = 0f;
+                UpdateCurrentPerkValues();
+            }
         }
 
         private void CaptureEventSystems()
