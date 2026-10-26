@@ -23,15 +23,21 @@ namespace xSkills.Systems
         public const float ModSharkAttackSeconds = 60f;
         public const float ModSharkRespawnSeconds = 160f;
         public const float ModWeatherDurationMultiplier = 2f;
+        public const float DefaultRainFrequencyPercent = 100f;
+        public const float DefaultRainDurationMultiplier = 1f;
+        public const float DefaultRainVariationPercent = 35f;
         public const float ModHungerDurationMultiplier = 2f;
         public const float ModThirstDurationMultiplier = 2f;
 
-        public int FormatVersion = 4;
+        public int FormatVersion = 5;
         public float DayLengthSeconds = ModDaySeconds;
         public float PlantGrowthMultiplier = ModPlantGrowthMultiplier;
         public float SharkAttackSeconds = ModSharkAttackSeconds;
         public float SharkRespawnSeconds = ModSharkRespawnSeconds;
         public float WeatherDurationMultiplier = ModWeatherDurationMultiplier;
+        public float RainFrequencyPercent = DefaultRainFrequencyPercent;
+        public float RainDurationMultiplier = DefaultRainDurationMultiplier;
+        public float RainVariationPercent = DefaultRainVariationPercent;
         public float HungerDurationMultiplier = ModHungerDurationMultiplier;
         public float ThirstDurationMultiplier = ModThirstDurationMultiplier;
         public bool ClimateConsumption = true;
@@ -43,6 +49,9 @@ namespace xSkills.Systems
             SharkAttackSeconds = Mathf.Clamp(Mathf.Round(SharkAttackSeconds), 1f, 3600f);
             SharkRespawnSeconds = Mathf.Clamp(Mathf.Round(SharkRespawnSeconds), 1f, 3600f);
             WeatherDurationMultiplier = ClampMultiplier(WeatherDurationMultiplier);
+            RainFrequencyPercent = Mathf.Clamp(Mathf.Round(RainFrequencyPercent), 0f, 400f);
+            RainDurationMultiplier = Mathf.Clamp(Mathf.Round(RainDurationMultiplier * 20f) / 20f, 0.25f, 5f);
+            RainVariationPercent = Mathf.Clamp(Mathf.Round(RainVariationPercent), 0f, 90f);
             HungerDurationMultiplier = ClampMultiplier(HungerDurationMultiplier);
             ThirstDurationMultiplier = ClampMultiplier(ThirstDurationMultiplier);
         }
@@ -382,7 +391,10 @@ namespace xSkills.Systems
                     Settings.ThirstDurationMultiplier = loaded.FormatVersion >= 4 ? loaded.ThirstDurationMultiplier : 1f;
                 }
                 if (!json.Contains("\"ClimateConsumption\"")) Settings.ClimateConsumption = true;
-                Settings.FormatVersion = 4;
+                if (!json.Contains("\"RainFrequencyPercent\"")) Settings.RainFrequencyPercent = TimeControlSettings.DefaultRainFrequencyPercent;
+                if (!json.Contains("\"RainDurationMultiplier\"")) Settings.RainDurationMultiplier = TimeControlSettings.DefaultRainDurationMultiplier;
+                if (!json.Contains("\"RainVariationPercent\"")) Settings.RainVariationPercent = TimeControlSettings.DefaultRainVariationPercent;
+                Settings.FormatVersion = 5;
                 Settings.Clamp();
                 if (!currentExists) { dirty = true; saveAt = 0f; }
             }

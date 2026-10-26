@@ -177,6 +177,13 @@ namespace xSkills.Systems
             return true;
         }
 
+        internal static string FormatForecastDate(int gameDay)
+        {
+            if (gameDay < 0 || gameDay > (DateTime.MaxValue - CalendarEpoch).Days)
+                return string.Empty;
+            return FormatDate(CalendarEpoch.AddDays(gameDay));
+        }
+
         private static string FormatDate(DateTime date)
         {
             string month = Localizer.T("calendar-month-" + date.Month);

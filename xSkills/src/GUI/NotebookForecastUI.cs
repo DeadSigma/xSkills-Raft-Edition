@@ -1,8 +1,8 @@
 using System;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 using xSkills.Services;
-using xSkills.Skills;
 using xSkills.Systems;
 
 namespace xSkills.GUI
@@ -10,33 +10,24 @@ namespace xSkills.GUI
     // Вкладка создаётся отдельно от сюжетных страниц и сетевой нумерации
     internal sealed class NotebookForecastUI : MonoBehaviour
     {
-        private static int LastDayOffset
-        {
-            get
-            {
-                SkillData skill = SkillCatalog.Find("survival");
-                AbilityData perk = skill != null ? skill.FindAbility("forecast") : null;
-                if (perk == null || perk.ValuesPerTier == 0 || perk.Values.Length == 0) return 10;
-                int tier = Mathf.Clamp(Mathf.Max(1, perk.PreviewTier), 1, perk.MaxTier);
-                return Mathf.Clamp(perk.Values[(tier - 1) * perk.ValuesPerTier], 1, 30);
-            }
-        }
+        private const int LastDayOffset = 10;
         private NoteBookUI notebook;
         private RectTransform tabRoot;
         private RectTransform leftRoot;
         private RectTransform rightRoot;
-        private Text tabText;
+        private TMP_Text nativeTabText;
+        private Text nativeLegacyTabText;
         private Text leftTitle;
         private Text rightTitle;
         private Text leftBody;
         private Text rightBody;
-        private Button previousButton;
-        private Button nextButton;
+        private bool warnedMissingBookmark;
         private bool initialized;
         private bool warnedUnsupportedPages;
         private bool unlocked;
         private bool inForecast;
         private int startDay = -1;
+        private int forecastRevision = -1;
         private int spread;
         private uint savedStoryIndex;
 
@@ -59,12 +50,14 @@ namespace xSkills.GUI
                 if (!unlocked && inForecast) ExitForecast();
                 if (tabRoot != null) tabRoot.gameObject.SetActive(unlocked);
             }
+            if (unlocked) UpdateBookmarkLabel();
             if (inForecast && notebook.isDisplayed)
             {
                 int current = Math.Max(0, WorldManager.DayCounter);
-                if (startDay != current)
+                if (startDay != current || forecastRevision != RainForecastSchedule.Revision)
                 {
                     startDay = current;
+                    forecastRevision = RainForecastSchedule.Revision;
                     RefreshSpread();
                 }
             }
@@ -72,6 +65,7 @@ namespace xSkills.GUI
 
         private bool CreateInterface()
         {
+            if (warnedMissingBookmark) return false;
             NoteBookPage left = notebook.FindNotePageByIndex(0);
             NoteBookPage right = notebook.FindNotePageByIndex(1);
             if (left == null || right == null) return false;
@@ -89,10 +83,16 @@ namespace xSkills.GUI
 
             leftRoot = CopyPageGeometry(leftTemplate, "xSkills forecast left page");
             rightRoot = CopyPageGeometry(rightTemplate, "xSkills forecast right page");
-            tabRoot = CopyPageGeometry(rightTemplate, "xSkills forecast tab anchor");
-            BuildForecastPage(leftRoot, out leftTitle, out leftBody, true);
-            BuildForecastPage(rightRoot, out rightTitle, out rightBody, false);
-            BuildTab(tabRoot);
+            BuildForecastPage(leftRoot, out leftTitle, out leftBody);
+            BuildForecastPage(rightRoot, out rightTitle, out rightBody);
+            if (!CreateVanillaBookmark())
+            {
+                Destroy(leftRoot.gameObject);
+                Destroy(rightRoot.gameObject);
+                leftRoot = null;
+                rightRoot = null;
+                return false;
+            }
             leftRoot.gameObject.SetActive(false);
             rightRoot.gameObject.SetActive(false);
             tabRoot.gameObject.SetActive(false);
@@ -148,48 +148,170 @@ namespace xSkills.GUI
             return text;
         }
 
-        private static Button CreateButton(RectTransform parent, string name,
-            float minX, float minY, float maxX, float maxY, Action onClick)
-        {
-            RectTransform rect = AnchoredRect(parent, name, minX, minY, maxX, maxY);
-            Image image = rect.gameObject.AddComponent<Image>();
-            image.color = new Color(0.81f, 0.71f, 0.51f, 0.82f);
-            Button button = rect.gameObject.AddComponent<Button>();
-            button.transition = Selectable.Transition.ColorTint;
-            button.onClick.AddListener(() => onClick());
-            return button;
-        }
-
-        private void BuildForecastPage(RectTransform root, out Text title,
-            out Text content, bool isLeft)
+        private void BuildForecastPage(RectTransform root, out Text title, out Text content)
         {
             Color ink = new Color(0.25f, 0.18f, 0.12f, 1f);
             title = CreateText(root, "Forecast title", 0.1f, 0.82f, 0.9f, 0.94f,
                 34, TextAnchor.MiddleCenter, ink);
             content = CreateText(root, "Forecast information", 0.11f, 0.18f, 0.89f, 0.81f,
                 28, TextAnchor.UpperLeft, ink);
-            Button nav = CreateButton(root, "Forecast navigation",
-                isLeft ? 0.13f : 0.62f, 0.055f, isLeft ? 0.40f : 0.89f, 0.14f,
-                isLeft ? (Action)PreviousSpread : NextSpread);
-            Text arrow = CreateText((RectTransform)nav.transform, "Arrow", 0f, 0f, 1f, 1f,
-                22, TextAnchor.MiddleCenter, ink);
-            arrow.text = isLeft ? "◀" : "▶";
-            if (isLeft) previousButton = nav;
-            else nextButton = nav;
         }
 
-        private void BuildTab(RectTransform anchor)
+        private bool CreateVanillaBookmark()
         {
-            Button button = CreateButton(anchor, "Weather bookmark", 0.73f, 0.87f, 1.02f, 0.98f, ToggleForecast);
-            tabText = CreateText((RectTransform)button.transform, "Bookmark text", 0f, 0f, 1f, 1f,
-                22, TextAnchor.MiddleCenter, new Color(0.22f, 0.16f, 0.1f, 1f));
-            tabText.text = Localizer.T("forecast-tab");
+            Notebook_ThumbnailShortcut template = null;
+            Notebook_ThumbnailShortcut[] shortcuts = notebook.GetComponentsInChildren<Notebook_ThumbnailShortcut>(true);
+            for (int i = 0; i < shortcuts.Length; i++)
+            {
+                Notebook_ThumbnailShortcut shortcut = shortcuts[i];
+                if (shortcut != null && shortcut.targetPage != null && shortcut.targetPage.pageIndex == 0U)
+                {
+                    template = shortcut;
+                    break;
+                }
+            }
+
+            if (template == null)
+            {
+                if (!warnedMissingBookmark)
+                {
+                    warnedMissingBookmark = true;
+                    Debug.LogWarning("[xSkills] Forecast: vanilla First page bookmark was not found");
+                }
+                return false;
+            }
+
+            Transform bookmarkTemplate = template.transform;
+            Button sourceButton = template.GetComponentInParent<Button>();
+            if (sourceButton != null && sourceButton.GetComponentInChildren<Notebook_ThumbnailShortcut>(true) == template)
+                bookmarkTemplate = sourceButton.transform;
+            RectTransform original = bookmarkTemplate as RectTransform;
+            if (original == null) return false;
+
+            GameObject clone = UnityEngine.Object.Instantiate(bookmarkTemplate.gameObject, bookmarkTemplate.parent, false);
+            clone.name = "xSkills Weather Bookmark";
+            tabRoot = clone.GetComponent<RectTransform>();
+            if (tabRoot == null)
+            {
+                Destroy(clone);
+                return false;
+            }
+            clone.SetActive(false);
+
+            // Ванильная кнопка остаётся активной - сохраняются её состояния наведения
+            Notebook_ThumbnailShortcut[] copiedShortcuts = clone.GetComponentsInChildren<Notebook_ThumbnailShortcut>(true);
+            for (int i = 0; i < copiedShortcuts.Length; i++) copiedShortcuts[i].enabled = false;
+            Button[] copiedButtons = clone.GetComponentsInChildren<Button>(true);
+            Button nativeButton = clone.GetComponent<Button>();
+            if (nativeButton == null && copiedButtons.Length > 0)
+                nativeButton = copiedButtons[0];
+            for (int i = 0; i < copiedButtons.Length; i++)
+            {
+                Button button = copiedButtons[i];
+                if (button == nativeButton) continue;
+                button.enabled = false;
+            }
+
+            TMP_Text[] textLabels = clone.GetComponentsInChildren<TMP_Text>(true);
+            for (int i = 0; i < textLabels.Length; i++)
+            {
+                if (nativeTabText == null || !string.IsNullOrEmpty(textLabels[i].text))
+                    nativeTabText = textLabels[i];
+                if (nativeTabText != null && !string.IsNullOrEmpty(nativeTabText.text)) break;
+            }
+            if (nativeTabText == null)
+            {
+                Text[] legacyLabels = clone.GetComponentsInChildren<Text>(true);
+                if (legacyLabels.Length > 0) nativeLegacyTabText = legacyLabels[0];
+            }
+
+            // Встроенные вызовы сюжетной закладки заменяются погодным действием
+            if (nativeButton == null)
+            {
+                RectTransform hitArea = AnchoredRect(tabRoot, "Weather bookmark hit area", 0f, 0f, 1f, 1f);
+                Image hitGraphic = hitArea.gameObject.AddComponent<Image>();
+                hitGraphic.color = new Color(1f, 1f, 1f, 0.001f);
+                nativeButton = hitArea.gameObject.AddComponent<Button>();
+                hitArea.SetAsLastSibling();
+            }
+            nativeButton.enabled = true;
+            nativeButton.interactable = true;
+            nativeButton.onClick = new Button.ButtonClickedEvent();
+            nativeButton.onClick.AddListener(ToggleForecast);
+            nativeButton.navigation = new Navigation { mode = Navigation.Mode.None };
+            Graphic graphic = nativeButton.targetGraphic;
+            if (graphic == null || !graphic.raycastTarget)
+            {
+                Image image = nativeButton.GetComponent<Image>();
+                if (image == null)
+                {
+                    image = nativeButton.gameObject.AddComponent<Image>();
+                    image.color = new Color(1f, 1f, 1f, 0.001f);
+                }
+                image.raycastTarget = true;
+                nativeButton.targetGraphic = image;
+            }
+            Animator tabAnimator = nativeButton.GetComponentInParent<Animator>();
+            if (tabAnimator == null || !tabAnimator.transform.IsChildOf(tabRoot))
+            {
+                NotebookBookmarkHover hover = nativeButton.gameObject.AddComponent<NotebookBookmarkHover>();
+                hover.Setup(tabRoot);
+            }
+
+            Canvas bookCanvas = notebook.GetComponentInChildren<Canvas>(true);
+            RectTransform bookRect = bookCanvas != null ? bookCanvas.transform as RectTransform : null;
+            if (bookRect != null)
+            {
+                // Положение по горизонтали наследуется от «First page», по вертикали - низ книги
+                if (bookmarkTemplate.GetComponentInParent<NoteBookPage>() != null)
+                    tabRoot.SetParent(bookRect, true);
+                Vector3 local = bookRect.InverseTransformPoint(tabRoot.position);
+                local.y = bookRect.rect.yMin + bookRect.rect.height * 0.095f;
+                tabRoot.position = bookRect.TransformPoint(local);
+            }
+            else
+            {
+                tabRoot.anchoredPosition += new Vector2(0f, -original.rect.height * 6f);
+            }
+            tabRoot.SetAsLastSibling();
+            UpdateBookmarkLabel();
+            return true;
+        }
+
+        private void UpdateBookmarkLabel()
+        {
+            string label = Localizer.T("forecast-tab");
+            if (nativeTabText != null && nativeTabText.text != label)
+                nativeTabText.text = label;
+            if (nativeLegacyTabText != null && nativeLegacyTabText.text != label)
+                nativeLegacyTabText.text = label;
+        }
+
+        internal void OverrideVanillaArrows(GameObject left, GameObject right,
+            GameObject leftConsole, GameObject rightConsole)
+        {
+            if (!inForecast || notebook == null || !notebook.isDisplayed) return;
+            bool canGoLeft = spread > 0;
+            bool canGoRight = (spread + 1) * 2 <= LastDayOffset;
+            bool gamepad = SimpleMonoBehaviourSingleton<CustomInputConfig>.Instance.Gamepad;
+            SetActiveIfChanged(left, canGoLeft && !gamepad);
+            SetActiveIfChanged(right, canGoRight && !gamepad);
+            SetActiveIfChanged(leftConsole, canGoLeft && gamepad);
+            SetActiveIfChanged(rightConsole, canGoRight && gamepad);
+        }
+
+        private static void SetActiveIfChanged(GameObject target, bool active)
+        {
+            if (target != null && target.activeSelf != active)
+                target.SetActive(active);
         }
 
         private void ToggleForecast()
         {
-            if (!unlocked || notebook == null || !notebook.isDisplayed) return;
-            if (inForecast) ExitForecast();
+            if (notebook == null || !notebook.isDisplayed) return;
+            // Перед нажатием повторно проверяется доступность способности
+            if (!NotebookForecastSystem.IsUnlocked()) return;
+            if (inForecast) ExitForecast(true);
             else EnterForecast();
         }
 
@@ -200,6 +322,7 @@ namespace xSkills.GUI
             inForecast = true;
             spread = 0;
             startDay = Math.Max(0, WorldManager.DayCounter);
+            forecastRevision = RainForecastSchedule.Revision;
             NoteBookPage[] originalPages = notebook.GetComponentsInChildren<NoteBookPage>(true);
             for (int i = 0; i < originalPages.Length; i++)
                 originalPages[i].SetPageActive(false);
@@ -211,14 +334,21 @@ namespace xSkills.GUI
             RefreshSpread();
         }
 
-        private void ExitForecast()
+        private void ExitForecast(bool restoreStoryPage = true)
         {
             if (!inForecast) return;
             inForecast = false;
             if (leftRoot != null) leftRoot.gameObject.SetActive(false);
             if (rightRoot != null) rightRoot.gameObject.SetActive(false);
-            if (notebook != null) notebook.SetPageIndex(savedStoryIndex);
-            if (tabText != null) tabText.text = Localizer.T("forecast-tab");
+            // При нажатии сюжетной закладки целевую страницу выставляет сама Raft
+            if (restoreStoryPage && notebook != null)
+                notebook.SetPageIndex(savedStoryIndex);
+            UpdateBookmarkLabel();
+        }
+
+        internal void OnVanillaNavigation()
+        {
+            if (inForecast) ExitForecast(false);
         }
 
         internal bool HandleVanillaPageFlip(int step)
@@ -246,11 +376,9 @@ namespace xSkills.GUI
         private void RefreshSpread()
         {
             if (!inForecast) return;
-            tabText.text = Localizer.T("forecast-back");
+            UpdateBookmarkLabel();
             FillDay(leftTitle, leftBody, spread * 2);
             FillDay(rightTitle, rightBody, spread * 2 + 1);
-            previousButton.gameObject.SetActive(spread > 0);
-            nextButton.gameObject.SetActive((spread + 1) * 2 <= LastDayOffset);
         }
 
         private void FillDay(Text heading, Text body, int offset)
@@ -271,7 +399,7 @@ namespace xSkills.GUI
             heading.text = offset == 0 ? Localizer.T("forecast-today") :
                 offset == 1 ? Localizer.T("forecast-tomorrow") :
                 Localizer.F("forecast-in-days", offset);
-            string day = Localizer.F("forecast-day-number", forecast.Day);
+            string day = WorldEnvironment.FormatForecastDate(forecast.Day);
             string climate = !string.IsNullOrEmpty(forecast.DayClimate) ? forecast.DayClimate :
                 !string.IsNullOrEmpty(forecast.NightClimate) ? forecast.NightClimate :
                 Localizer.T("forecast-normal");
@@ -288,18 +416,27 @@ namespace xSkills.GUI
                     observed = "\n\n" + Localizer.F("forecast-now", now.Weather,
                         now.Temperature.ToString("0.0"));
             }
-            body.text = day + "\n\n" +
+            bool raining;
+            string details;
+            string rainText;
+            if (RainForecastSchedule.TryGetRainDescription(startDay + offset, out raining, out details))
+            {
+                rainText = Localizer.T(raining ? "forecast-rain-yes" : "forecast-rain-no");
+                if (raining && !string.IsNullOrEmpty(details)) rainText += "\n" + details;
+            }
+            else rainText = Localizer.T("forecast-rain-unavailable");
+            body.text = day + "\n\n" + rainText + "\n\n" +
                 Localizer.F("forecast-day-temp", forecast.DayTemperature.ToString("0.0")) + "\n" +
                 Localizer.F("forecast-night-temp", forecast.NightTemperature.ToString("0.0")) + "\n\n" +
                 Localizer.F("forecast-day-humidity", Mathf.RoundToInt(forecast.DayHumidity)) + "\n" +
                 Localizer.F("forecast-night-humidity", Mathf.RoundToInt(forecast.NightHumidity)) + "\n\n" +
-                climate + more + observed + "\n\n" + Localizer.T("forecast-precipitation-note");
+                climate + more + observed;
         }
 
         private void BookVisibilityChanged(bool opened)
         {
             if (!opened) ExitForecast();
-            else if (unlocked && tabText != null) tabText.text = Localizer.T("forecast-tab");
+            else if (unlocked) UpdateBookmarkLabel();
         }
 
         private void OnDestroy()

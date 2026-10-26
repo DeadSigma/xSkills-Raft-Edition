@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
@@ -26,29 +26,115 @@ namespace xSkills.GUI
                 control.ThirstFactor.ToString("0.00", CultureInfo.InvariantCulture));
         }
 
+        private int timeWorldSubPage;
+
         private void BuildTimeWorldSettings(RectTransform panel)
+        {
+            if (!Raft_Network.IsHost) return;
+            string[] tabs = { "settings-timeworld-tab-time", "settings-rain-title" };
+            for (int i = 0; i < tabs.Length; i++)
+            {
+                int index = i;
+                float x = 12f + i * 313f;
+                UIFactory.Image(panel, "Time and world tab background " + i, "elements",
+                    "button_idle", x, 3, 306, 43);
+                UIFactory.Label(panel, "Time and world tab name " + i, Localizer.T(tabs[i]),
+                    x + 4, 6, 298, 37, 17, timeWorldSubPage == i ? UIFactory.Gold : UIFactory.White,
+                    TextAnchor.MiddleCenter);
+                UIFactory.Button(panel, "Time and world tab button " + i, x, 3, 306, 43, () =>
+                {
+                    if (timeWorldSubPage == index) return;
+                    timeWorldSubPage = index;
+                    ShowSettingsSection(shownSettingsSection, true);
+                });
+            }
+
+            RectTransform subsection = UIFactory.Rect(panel, "Time and world subsection", 0, 51, 645, 720);
+            if (timeWorldSubPage == 0) BuildTimeSettings(subsection);
+            else BuildRainSettings(subsection);
+        }
+
+        private void BuildTimeSettings(RectTransform panel)
         {
             TimeControlSystem control = TimeControlSystem.Instance;
             if (control == null || !Raft_Network.IsHost) return;
             UIFactory.Label(panel, "Time intro", Localizer.T("settings-timeworld-intro"),
-                22, 5, 585, 50, 18, UIFactory.White, TextAnchor.UpperLeft);
-            TimeSetting(panel, "day", "settings-time-day", 58, 60f, 14400f,
+                22, 5, 585, 49, 18, UIFactory.White, TextAnchor.UpperLeft);
+            TimeSetting(panel, "day", "settings-time-day", 60, 60f, 14400f,
                 control.Settings.DayLengthSeconds, control.VanillaDaySeconds, TimeControlSettings.ModDaySeconds,
                 v => control.Settings.DayLengthSeconds = v, false);
-            TimeSetting(panel, "plants", "settings-time-plants", 178, .1f, 20f,
+            TimeSetting(panel, "plants", "settings-time-plants", 174, .1f, 20f,
                 control.Settings.PlantGrowthMultiplier, 1f, TimeControlSettings.ModPlantGrowthMultiplier,
                 v => control.Settings.PlantGrowthMultiplier = v, true);
-            TimeSetting(panel, "sharkattack", "settings-time-shark-attack", 298, 1f, 3600f,
+            TimeSetting(panel, "sharkattack", "settings-time-shark-attack", 288, 1f, 3600f,
                 control.Settings.SharkAttackSeconds, control.VanillaSharkAttack, TimeControlSettings.ModSharkAttackSeconds,
                 v => control.Settings.SharkAttackSeconds = v, false);
-            TimeSetting(panel, "sharkrespawn", "settings-time-shark-respawn", 418, 1f, 3600f,
+            TimeSetting(panel, "sharkrespawn", "settings-time-shark-respawn", 402, 1f, 3600f,
                 control.Settings.SharkRespawnSeconds, control.VanillaSharkRespawn, TimeControlSettings.ModSharkRespawnSeconds,
                 v => control.Settings.SharkRespawnSeconds = v, false);
-            TimeSetting(panel, "weather", "settings-time-weather", 538, .1f, 20f,
+            TimeSetting(panel, "weather", "settings-time-weather", 516, .1f, 20f,
                 control.Settings.WeatherDurationMultiplier, 1f, TimeControlSettings.ModWeatherDurationMultiplier,
                 v => control.Settings.WeatherDurationMultiplier = v, true);
             UIFactory.Label(panel, "Time hint", Localizer.T("settings-timeworld-hint"),
-                22, 688, 585, 70, 17, UIFactory.Grey, TextAnchor.UpperLeft);
+                22, 642, 585, 65, 17, UIFactory.Grey, TextAnchor.UpperLeft);
+        }
+
+        private void BuildRainSettings(RectTransform panel)
+        {
+            TimeControlSystem control = TimeControlSystem.Instance;
+            if (control == null || !Raft_Network.IsHost) return;
+            UIFactory.Label(panel, "Rain settings intro", Localizer.T("settings-rain-intro"),
+                22, 4, 590, 65, 19, UIFactory.White, TextAnchor.UpperLeft);
+            RainSetting(panel, "frequency", "settings-rain-frequency", "settings-rain-frequency-hint",
+                75, 0f, 400f, control.Settings.RainFrequencyPercent, 100f,
+                value => control.Settings.RainFrequencyPercent = value, false);
+            RainSetting(panel, "duration", "settings-rain-duration", "settings-rain-duration-hint",
+                250, .25f, 5f, control.Settings.RainDurationMultiplier, 1f,
+                value => control.Settings.RainDurationMultiplier = value, true);
+            RainSetting(panel, "variation", "settings-rain-variation", "settings-rain-variation-hint",
+                425, 0f, 90f, control.Settings.RainVariationPercent, 35f,
+                value => control.Settings.RainVariationPercent = value, false);
+            UIFactory.Label(panel, "Rain settings note", Localizer.T("settings-rain-note"),
+                22, 610, 592, 95, 17, UIFactory.Grey, TextAnchor.UpperLeft);
+        }
+
+        private void RainSetting(RectTransform panel, string id, string key, string hintKey,
+            float y, float minimum, float maximum, float value, float reset,
+            Action<float> apply, bool multiplier)
+        {
+            UIFactory.Label(panel, "Rain " + id + " title", Localizer.T(key),
+                22, y, 590, 33, 23, UIFactory.Gold);
+            InputField edit = CreateTimeInput(panel, "Rain " + id + " value", 511, y + 41, 100, 36);
+            Slider slider = SettingsSlider(panel, "Rain " + id + " slider", 22, y + 43, 480,
+                minimum, maximum, value, null, !multiplier);
+            Func<float, string> display = v => multiplier
+                ? "x" + v.ToString("0.##", CultureInfo.InvariantCulture)
+                : Mathf.RoundToInt(v).ToString(CultureInfo.InvariantCulture) + "%";
+            Action<float> applyValue = next =>
+            {
+                float selected = Mathf.Clamp(next, minimum, maximum);
+                selected = multiplier ? Mathf.Round(selected * 20f) / 20f : Mathf.Round(selected);
+                slider.SetValueWithoutNotify(selected);
+                edit.text = display(selected);
+                apply(selected);
+                TimeControlSystem.SettingsChanged();
+                RainForecastSchedule.SettingsChanged();
+            };
+            edit.text = display(value);
+            slider.onValueChanged.AddListener(v => applyValue(v));
+            edit.onEndEdit.AddListener(raw =>
+            {
+                float parsed;
+                string normalized = (raw ?? string.Empty).Replace("x", "").Replace("X", "")
+                    .Replace("%", "").Replace(',', '.').Trim();
+                if (float.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed) &&
+                    !float.IsNaN(parsed) && !float.IsInfinity(parsed)) applyValue(parsed);
+                else edit.text = display(slider.value);
+            });
+            UIFactory.Label(panel, "Rain " + id + " hint", Localizer.T(hintKey),
+                22, y + 90, 405, 60, 17, UIFactory.Grey, TextAnchor.UpperLeft);
+            TimePresetButton(panel, "Rain " + id + " reset", Localizer.T("settings-rain-reset"),
+                462, y + 92, 150, () => applyValue(reset));
         }
 
         private int survivalSubPage;
