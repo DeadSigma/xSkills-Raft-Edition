@@ -26,15 +26,21 @@ namespace xSkills.Skills
             {
                 Defaults def = Remember(ability);
                 int min = Mathf.Clamp(PlayerPrefs.GetInt(Key(ability, "min"), def.MinLevel), 1, skill.MaxLevel);
-                int tiers = Mathf.Clamp(PlayerPrefs.GetInt(Key(ability, "tiers"), def.TierCount), 1, MaximumTiers);
+                int tierLimit = ability.Id == "strongback" ? 2 : MaximumTiers;
+                int tiers = Mathf.Clamp(PlayerPrefs.GetInt(Key(ability, "tiers"), def.TierCount), 1, tierLimit);
                 ability.RequiredLevel = min;
                 Resize(ability, tiers, def);
                 for (int tier = 1; tier <= tiers; tier++)
                     for (int value = 0; value < def.PerTier; value++)
                     {
                         int index = (tier - 1) * def.PerTier + value;
-                        ability.Values[index] = NormalizeValue(ability, value,
-                            PlayerPrefs.GetInt(Key(ability, "v" + tier + "_" + value), ability.Values[index]));
+                        int stored = PlayerPrefs.GetInt(Key(ability, "v" + tier + "_" + value), ability.Values[index]);
+                        if (ability.Id == "strongback" && stored > 6)
+                        {
+                            stored = tier == 1 ? 3 : 6;
+                            PlayerPrefs.SetInt(Key(ability, "v" + tier + "_" + value), stored);
+                        }
+                        ability.Values[index] = NormalizeValue(ability, value, stored);
                     }
                 if (ability.PreviewTier > tiers) ability.PreviewTier = tiers;
             }
@@ -98,13 +104,14 @@ namespace xSkills.Skills
         {
             if (ability == null) return;
             int previousTier = ability.PreviewTier;
-            Resize(ability, Mathf.Clamp(value, 1, MaximumTiers), Remember(ability));
+            Resize(ability, Mathf.Clamp(value, 1, ability.Id == "strongback" ? 2 : MaximumTiers), Remember(ability));
             for (int tier = 1; tier <= ability.MaxTier; tier++)
                 for (int index = 0; index < ability.ValuesPerTier; index++)
                 {
                     int at = (tier - 1) * ability.ValuesPerTier + index;
-                    ability.Values[at] = NormalizeValue(ability, index,
-                        PlayerPrefs.GetInt(Key(ability, "v" + tier + "_" + index), ability.Values[at]));
+                    int stored = PlayerPrefs.GetInt(Key(ability, "v" + tier + "_" + index), ability.Values[at]);
+                    if (ability.Id == "strongback" && stored > 6) stored = tier == 1 ? 3 : 6;
+                    ability.Values[at] = NormalizeValue(ability, index, stored);
                 }
             if (ability.PreviewTier > ability.MaxTier) ability.PreviewTier = ability.MaxTier;
             PlayerPrefs.SetInt(Key(ability, "tiers"), ability.MaxTier);
@@ -143,6 +150,7 @@ namespace xSkills.Skills
         private static int NormalizeValue(AbilityData ability, int index, int value)
         {
             if (ability.Id == "forecast") return Mathf.Clamp(value, 1, 30);
+            if (ability.Id == "strongback") return Mathf.Clamp(value, 0, 6);
             if (ability.Id == "diver") return Mathf.Clamp(value, 0, 95);
             if (ability.Id == "featherfall" && index == 1) return Mathf.Clamp(value, 0, 100);
             if (ability.Id == "meatshield" && index == 0) return Mathf.Clamp(value, 0, 100);

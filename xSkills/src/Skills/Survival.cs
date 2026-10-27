@@ -15,7 +15,7 @@ namespace xSkills.Skills
             AddAbility(new Ability("hugestomach", "xskills:ability-hugestomach",
                 "xskills:abilitydesc-hugestomach", 3, 3, new[] { 10, 20, 30 }));
             AddAbility(new Ability("strongback", "xskills:ability-strongback",
-                "xskills:abilitydesc-strongback", 5, 3, new[] { 10, 20, 30 }));
+                "xskills:abilitydesc-strongback", 5, 2, new[] { 3, 6 }));
             AddAbility(new Ability("scout", "xskills:ability-scout",
                 "xskills:abilitydesc-scout", 7, 1, new[] { 5 }));
             AddAbility(new Ability("meatshield", "xskills:ability-meatshield",

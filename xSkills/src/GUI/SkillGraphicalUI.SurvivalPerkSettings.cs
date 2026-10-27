@@ -20,7 +20,7 @@ namespace xSkills.GUI
             UIFactory.Label(panel, "Perk balance heading", Localizer.T("settings-survival-perks-intro"),
                 15, 1, 614, 48, 17, UIFactory.White, TextAnchor.UpperLeft);
 
-            RectTransform left = UIFactory.Rect(panel, "Perks picker viewport", 12, 53, 198, 695);
+            RectTransform left = UIFactory.Rect(panel, "Perks picker viewport", 12, 53, 198, 635);
             left.gameObject.AddComponent<RectMask2D>();
             Image leftHit = left.gameObject.AddComponent<Image>();
             leftHit.color = new Color(0f, 0f, 0f, .001f);
@@ -30,7 +30,7 @@ namespace xSkills.GUI
             leftScroll.scrollSensitivity = 64f;
             leftScroll.inertia = false;
             leftScroll.movementType = ScrollRect.MovementType.Clamped;
-            RectTransform entries = UIFactory.Rect(left, "Perks list", 0, 0, 188, Mathf.Max(695, skill.Abilities.Count * 64 + 7));
+            RectTransform entries = UIFactory.Rect(left, "Perks list", 0, 0, 188, Mathf.Max(635, skill.Abilities.Count * 64 + 7));
             leftScroll.content = entries;
             leftScroll.viewport = left;
 
@@ -59,7 +59,7 @@ namespace xSkills.GUI
             leftScroll.verticalNormalizedPosition = survivalPerkListPosition;
             leftScroll.onValueChanged.AddListener(v => survivalPerkListPosition = v.y);
 
-            RectTransform right = UIFactory.Rect(panel, "Perk editor", 217, 52, 413, 702);
+            RectTransform right = UIFactory.Rect(panel, "Perk editor", 217, 52, 413, 650);
             UIFactory.Label(right, "Selected perk", Localizer.AbilityName(selected.Id),
                 8, 2, 396, 35, 24, UIFactory.Gold);
             EditSurvivalPerkInteger(right, "Min level", "settings-perk-required-level",
@@ -69,7 +69,8 @@ namespace xSkills.GUI
                     ShowSettingsSection(shownSettingsSection, true);
                 });
             EditSurvivalPerkInteger(right, "Tier count", "settings-perk-tier-count",
-                88, 1, SurvivalAbilityBalance.MaximumTiers, selected.MaxTier, value =>
+                88, 1, selected.Id == "strongback" ? 2 : SurvivalAbilityBalance.MaximumTiers,
+                selected.MaxTier, value =>
                 {
                     SurvivalAbilityBalance.SetTierCount(selected, value);
                     ShowSettingsSection(shownSettingsSection, true);
@@ -77,7 +78,7 @@ namespace xSkills.GUI
 
             UIFactory.Label(right, "Perk values heading", Localizer.T("settings-perk-values-heading"),
                 8, 145, 392, 33, 19, UIFactory.Gold);
-            RectTransform viewport = UIFactory.Rect(right, "Perk values viewport", 5, 181, 400, 446);
+            RectTransform viewport = UIFactory.Rect(right, "Perk values viewport", 5, 181, 400, 387);
             viewport.gameObject.AddComponent<RectMask2D>();
             Image hitbox = viewport.gameObject.AddComponent<Image>();
             hitbox.color = new Color(0f, 0f, 0f, .001f);
@@ -89,7 +90,7 @@ namespace xSkills.GUI
             scroll.scrollSensitivity = 63f;
             int valuesPerTier = selected.ValuesPerTier;
             float contentHeight = selected.MaxTier * (42f + valuesPerTier * 51f) + 16f;
-            RectTransform list = UIFactory.Rect(viewport, "Perk numeric values", 0, 0, 392, Mathf.Max(446f, contentHeight));
+            RectTransform list = UIFactory.Rect(viewport, "Perk numeric values", 0, 0, 392, Mathf.Max(387f, contentHeight));
             scroll.content = list;
             scroll.viewport = viewport;
             float yPosition = 6f;
@@ -131,7 +132,7 @@ namespace xSkills.GUI
             scroll.verticalNormalizedPosition = survivalPerkValuesPosition;
             scroll.onValueChanged.AddListener(v => survivalPerkValuesPosition = v.y);
             SettingsButton(right, "Reset selected perk", Localizer.T("settings-perk-reset"),
-                8, 645, 381, () =>
+                8, 582, 381, () =>
                 {
                     SurvivalAbilityBalance.RestoreDefaults(selected);
                     ShowSettingsSection(shownSettingsSection, true);

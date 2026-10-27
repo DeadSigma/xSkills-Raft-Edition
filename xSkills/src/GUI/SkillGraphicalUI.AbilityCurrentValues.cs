@@ -84,9 +84,26 @@ namespace xSkills.GUI
                 case "longlife":
                     AddCurrentLine(lines, "ui-perk-current-health", Amount(SurvivalPerkSystem.CurrentHealthBonusPercent, "%", true));
                     break;
+                case "strongback":
+                    AddCurrentLine(lines, "settings-perk-value-strongback-0",
+                        Amount(StrongBackSystem.ActiveSlots));
+                    break;
+                case "hugestomach":
+                    AddCurrentLine(lines, "ui-perk-current-stomach-bonus",
+                        Amount(SurvivalPerkSystem.CurrentStomachBonus, " " + Localizer.T("ui-perk-stomach-units"), true));
+                    float? capacity = SurvivalPerkSystem.CurrentStomachCapacity;
+                    if (capacity.HasValue)
+                        AddCurrentLine(lines, "ui-perk-current-stomach-capacity",
+                            Amount(capacity.Value, " " + Localizer.T("ui-perk-stomach-units")));
+                    break;
                 case "laststand":
                     float? chance = SurvivalPerkSystem.CurrentLastStandChancePercent;
                     AddCurrentLine(lines, "ui-perk-current-chance", chance.HasValue ? Amount(chance.Value, "%") : "—");
+                    float? remainingDays = SurvivalPerkSystem.CurrentLastStandCooldownDays;
+                    if (remainingDays.HasValue)
+                        lines.Add(remainingDays.Value <= 0f
+                            ? Localizer.T("ui-perk-laststand-ready")
+                            : Localizer.F("ui-perk-laststand-cooldown", Mathf.CeilToInt(remainingDays.Value)));
                     break;
                 case "photosynthesis":
                     AddCurrentLine(lines, "ui-perk-current-regeneration", Amount(SurvivalPerkSystem.CurrentPhotosynthesisBonusPercent, "%", true));

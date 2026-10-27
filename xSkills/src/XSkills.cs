@@ -25,6 +25,7 @@ namespace xSkills
             SoundPlayer.Initialize();
             BodyTemperatureSystem.Initialize();
             SurvivalPerkSystem.Initialize();
+            StrongBackSystem.Initialize();
             NotebookForecastSystem.Initialize();
             TimeControlSystem.Initialize();
             WaterSurvivalSystem.Initialize();
@@ -42,6 +43,7 @@ namespace xSkills
         public void Update()
         {
             SkillProgressStorage.Tick();
+            StrongBackSystem.Tick();
             SurvivalExperienceSystem.Tick(Time.deltaTime);
             WaterSurvivalSystem.Tick(Time.deltaTime);
             NativeSkillHotkey.Tick();
@@ -126,6 +128,7 @@ namespace xSkills
             TimeControlSystem.Dispose();
             BodyTemperatureSystem.Dispose();
             SurvivalPerkSystem.Dispose();
+            StrongBackSystem.Dispose();
             SoundPlayer.Shutdown();
             Localizer.Reset();
             ResourceLoader.Clear();

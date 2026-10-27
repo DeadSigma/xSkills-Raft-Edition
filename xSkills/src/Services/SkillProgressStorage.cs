@@ -53,6 +53,7 @@ namespace xSkills.Services
             [DataMember(Order = 3)] public int UnlearnPoints;
             [DataMember(Order = 4)] public SavedSkill[] Skills;
             [DataMember(Order = 5, EmitDefaultValue = false)] public WaterProgressData Water;
+            [DataMember(Order = 6, EmitDefaultValue = false)] public float SurvivalElapsedMinutes;
         }
 
         private static readonly DataContractJsonSerializer ProgressSerializer =
@@ -212,6 +213,7 @@ namespace xSkills.Services
                     migratedWater = water != null;
                 }
                 WaterSurvivalSystem.RestoreProgress(water);
+                SurvivalExperienceSystem.RestoreProgress(progress != null ? progress.SurvivalElapsedMinutes : 0f);
                 SkillCatalog.NotifyChanged();
             }
             catch (Exception ex)
@@ -264,6 +266,7 @@ namespace xSkills.Services
             progress.Revision = revision + 1;
             progress.UnlearnPoints = SkillCatalog.UnlearnPoints;
             progress.Water = WaterSurvivalSystem.CollectProgress();
+            progress.SurvivalElapsedMinutes = SurvivalExperienceSystem.CollectProgress();
             progress.Skills = new SavedSkill[skills.Count];
             for (int i = 0; i < skills.Count; i++)
             {
@@ -318,7 +321,8 @@ namespace xSkills.Services
                     roundtrip.Water.FatigueLevel != progress.Water.FatigueLevel ||
                     roundtrip.Water.LungLevel != progress.Water.LungLevel ||
                     Math.Abs(roundtrip.Water.OxygenTrainingSeconds - progress.Water.OxygenTrainingSeconds) > .01f ||
-                    Math.Abs(roundtrip.Water.FatigueTrainingSeconds - progress.Water.FatigueTrainingSeconds) > .01f)
+                    Math.Abs(roundtrip.Water.FatigueTrainingSeconds - progress.Water.FatigueTrainingSeconds) > .01f ||
+                    Math.Abs(roundtrip.SurvivalElapsedMinutes - progress.SurvivalElapsedMinutes) > .01f)
                     throw new InvalidOperationException("Skill progress JSON failed round-trip validation");
 
                 bool written = false;
@@ -373,6 +377,7 @@ namespace xSkills.Services
         {
             if (saveKey == null) return;
             WaterSurvivalSystem.FlushProgress();
+            SurvivalExperienceSystem.FlushProgress();
             Save();
             saveKey = null;
             savePath = null;
@@ -386,6 +391,7 @@ namespace xSkills.Services
                 for (int i = 0; i < skills.Count; i++) skills[i].Reset();
                 SkillCatalog.SetUnlearnPoints(0);
                 WaterSurvivalSystem.RestoreProgress(null);
+                SurvivalExperienceSystem.Reset();
                 SkillCatalog.NotifyChanged();
             }
             finally { restoring = false; }
@@ -395,6 +401,7 @@ namespace xSkills.Services
         {
             if (!initialized) return;
             WaterSurvivalSystem.FlushProgress();
+            SurvivalExperienceSystem.FlushProgress();
             Save();
             SkillCatalog.Changed -= OnChanged;
             SkillCatalog.ExperienceGained -= OnExperienceGained;

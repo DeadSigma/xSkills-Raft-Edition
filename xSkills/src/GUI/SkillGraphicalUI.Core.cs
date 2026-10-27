@@ -201,7 +201,8 @@ namespace xSkills.GUI
             if (page == "_home") TickPlayerHome(dt);
             else if (page == "_settings") UpdateClimateRateLabel();
             else if (selectedAbility != null &&
-                (selectedAbility.Id == "laststand" || selectedAbility.Id == "photosynthesis") &&
+                (selectedAbility.Id == "laststand" || selectedAbility.Id == "photosynthesis" ||
+                 selectedAbility.Id == "hugestomach") &&
                 (perkValuesUpdateElapsed += dt) >= .2f)
             {
                 perkValuesUpdateElapsed = 0f;

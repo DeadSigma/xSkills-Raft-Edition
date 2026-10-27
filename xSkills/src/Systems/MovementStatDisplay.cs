@@ -31,7 +31,8 @@ namespace xSkills.Systems
                 ? Stat_WellBeing.swimSpeedMultiplier : 1f;
 
             walk = Sanitize(controller.GroundVelocityModifier) *
-                Sanitize(walkEquipment) * Sanitize(wellBeingWalk) * temperature;
+                Sanitize(walkEquipment) * Sanitize(wellBeingWalk) * temperature *
+                (1f + SurvivalPerkSystem.CurrentGroundSpeedBonusPercent / 100f);
             float waterModifier = Sanitize(controller.WaterVelocityModifier);
             float flippersModifier = ReadEquippedFlippersMultiplier(player);
             // Уже применённый бонус ласт не учитывается дважды

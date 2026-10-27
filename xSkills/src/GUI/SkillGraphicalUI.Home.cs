@@ -357,7 +357,8 @@ namespace xSkills.GUI
             MovementStatDisplay.Read(player, out walk, out swim);
             SetHomeRate(walkSpeedText, walkSpeedBonus, walk, false);
             SetHomeRate(swimSpeedText, swimSpeedBonus, swim, false);
-            SetHomeRate(hungerRateText, hungerRateBonus, TimeControlSystem.CurrentHungerRate, true);
+            SetHomeRate(hungerRateText, hungerRateBonus,
+                TimeControlSystem.CurrentHungerRate * SurvivalPerkSystem.CurrentSprinterHungerMultiplier, true);
             SetHomeRate(dehydrationRateText, dehydrationRateBonus, TimeControlSystem.CurrentThirstRate, true);
         }
 
