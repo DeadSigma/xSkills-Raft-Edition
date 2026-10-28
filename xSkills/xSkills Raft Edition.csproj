@@ -243,7 +243,7 @@
 		<MakeDir Directories="$(RaftModsDir)" Condition="!Exists('$(RaftModsDir)')" />
 
 		<ItemGroup>
-			<DevRmodFiles Include="$(ProjectDir)**\*" Exclude="$(ProjectDir)bin\**;$(ProjectDir)obj\**;$(ProjectDir)**\*.dll;$(ProjectDir)**\DevAutoLoad.Inject.ps1" />
+			<DevRmodFiles Include="$(ProjectDir)**\*" Exclude="$(ProjectDir)bin\**;$(ProjectDir)obj\**;$(ProjectDir)**\*.dll;$(ProjectDir)**\DevAutoLoad.Inject.ps1;$(ProjectDir)**\*.bak;$(ProjectDir)**\*.csproj" />
 			<OldInstalledRmods Include="$(RaftModsDir)\$(ModName) v*.rmod" />
 		</ItemGroup>
 
@@ -285,7 +285,7 @@
 		<MakeDir Directories="$(ReleaseDir)" />
 
 		<ItemGroup>
-			<ReleaseRmodFiles Include="$(ProjectDir)**\*" Exclude="$(ProjectDir)bin\**;$(ProjectDir)obj\**;$(ProjectDir)**\*.dll;$(ProjectDir)**\DevAutoLoad.cs;$(ProjectDir)**\DevAutoLoad.Inject.ps1" />
+			<ReleaseRmodFiles Include="$(ProjectDir)**\*" Exclude="$(ProjectDir)bin\**;$(ProjectDir)obj\**;$(ProjectDir)**\*.dll;$(ProjectDir)**\DevAutoLoad.cs;$(ProjectDir)**\DevAutoLoad.Inject.ps1;$(ProjectDir)**\*.bak;$(ProjectDir)**\*.csproj" />
 		</ItemGroup>
 
 		<Copy SourceFiles="@(ReleaseRmodFiles)" DestinationFiles="@(ReleaseRmodFiles->'$(ReleaseRmodTempDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="false" />

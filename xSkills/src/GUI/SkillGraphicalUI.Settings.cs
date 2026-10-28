@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -100,6 +100,7 @@ namespace xSkills.GUI
             if (id == "audio") return Localizer.T("settings-audio-summary");
             if (id == "diet") return Localizer.T("settings-diet-summary");
             if (id == "skill:survival") return Localizer.T("settings-survival-skill-summary");
+            if (id == "skill:cooking") return Localizer.T("settings-cooking-skill-summary");
             return Localizer.T("settings-skill-summary");
         }
 
@@ -214,6 +215,7 @@ namespace xSkills.GUI
         private void BuildSkillSettings(RectTransform parent, string skillId)
         {
             if (skillId == "survival") { BuildSurvivalSkillSettings(parent); return; }
+            if (skillId == "cooking") { BuildCookingExperienceSettings(parent); return; }
             if (skillId == "fishing") { BuildFishingIntegrationSettings(parent); return; }
             UIFactory.Label(parent, "Skill settings summary", Localizer.F("settings-skill-heading", Localizer.SkillName(skillId)),
                 22, 26, 585, 55, 26, UIFactory.Gold);

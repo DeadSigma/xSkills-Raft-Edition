@@ -30,6 +30,7 @@ namespace xSkills
             TimeControlSystem.Initialize();
             WaterSurvivalSystem.Initialize();
             FishingIntegration.Initialize();
+            Cooking.Initialize();
             ui = new SkillGraphicalUI();
             ui.Initialize();
             notifications = SkillNotifications.Create();
@@ -43,6 +44,7 @@ namespace xSkills
         public void Update()
         {
             SkillProgressStorage.Tick();
+            Cooking.Tick();
             StrongBackSystem.Tick();
             SurvivalExperienceSystem.Tick(Time.deltaTime);
             WaterSurvivalSystem.Tick(Time.deltaTime);
@@ -90,6 +92,23 @@ namespace xSkills
             return ExecuteCommand("unlearnpoints", args, AdminCommands.UnlearnPoints);
         }
 
+        [ConsoleCommand("laststandfx", "Preview Last Stand visual and sound")]
+        public static string LastStandFxCommand(string[] args)
+        {
+            if (!SkillProgressStorage.IsWorldBound || !RAPI.IsCurrentSceneGame())
+                return "xSkills: сначала загрузите мир";
+            try
+            {
+                LastStandEffect.Play();
+                return "xSkills: Last Stand FX";
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[xSkills] Last Stand FX preview: " + ex);
+                return "xSkills: ошибка эффекта";
+            }
+        }
+
         [ConsoleCommand("bodytemp", "Set local body temperature (31-41 C)")]
         public static string BodyTemperatureCommand(string[] args)
         {
@@ -114,6 +133,7 @@ namespace xSkills
 
         public void OnModUnload()
         {
+            LastStandEffect.Dispose();
             TemperatureHud.Dispose();
             if (ui != null) ui.Dispose();
             ui = null;
@@ -122,6 +142,7 @@ namespace xSkills
             NativeSkillHotkey.Uninstall();
             NotebookForecastSystem.Dispose();
             FishingIntegration.Dispose();
+            Cooking.Dispose();
             SkillProgressStorage.Dispose();
             SurvivalExperienceSystem.Reset();
             WaterSurvivalSystem.Dispose();

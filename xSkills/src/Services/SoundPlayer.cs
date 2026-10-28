@@ -37,7 +37,7 @@ namespace xSkills.Services
         private static readonly string[] Sounds =
         {
             "open", "close", "page", "pagesub", "upgraded", "upgradedmax",
-            "downgraded", "levelup", "sparringon", "sparringoff"
+            "downgraded", "levelup", "sparringon", "sparringoff", "laststand"
         };
 
         public static void Initialize()

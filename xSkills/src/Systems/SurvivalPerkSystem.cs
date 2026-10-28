@@ -326,6 +326,8 @@ namespace xSkills.Systems
             Stat_Health health = NormalHealth(__instance);
             if (health != null && health.Max > 0f)
                 health.Value = Mathf.Max(health.Value, health.Max * LastStandRecoveredHealth);
+            try { LastStandEffect.Play(); }
+            catch (Exception ex) { Debug.LogWarning("[xSkills] Last Stand visual effect: " + ex); }
         }
 
         private static void BeforeRegeneration(Stat_Health __instance,
