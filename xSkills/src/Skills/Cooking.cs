@@ -56,6 +56,9 @@ namespace xSkills.Skills
                 "xskills:abilitydesc-happymeal", 7, 3, new[] { 10, 20, 30 }));
             AddAbility(new Ability("fastfood", "xskills:ability-fastfood",
                 "xskills:abilitydesc-fastfood", 9, 3, new[] { 10, 20, 30 }));
+            AddAbility(new Ability("durablebowl", "xskills:ability-durablebowl",
+                "xskills:abilitydesc-durablebowl", 4, 2, new[] { 2, 0 }));
+            xSkills.Systems.ReusableDishesSystem.RegisterAbility(this);
         }
 
         // Настройки наград

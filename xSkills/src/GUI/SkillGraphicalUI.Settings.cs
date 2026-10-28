@@ -215,7 +215,7 @@ namespace xSkills.GUI
         private void BuildSkillSettings(RectTransform parent, string skillId)
         {
             if (skillId == "survival") { BuildSurvivalSkillSettings(parent); return; }
-            if (skillId == "cooking") { BuildCookingExperienceSettings(parent); return; }
+            if (skillId == "cooking") { BuildCookingSkillSettings(parent); return; }
             if (skillId == "fishing") { BuildFishingIntegrationSettings(parent); return; }
             UIFactory.Label(parent, "Skill settings summary", Localizer.F("settings-skill-heading", Localizer.SkillName(skillId)),
                 22, 26, 585, 55, 26, UIFactory.Gold);

@@ -31,6 +31,7 @@ namespace xSkills
             WaterSurvivalSystem.Initialize();
             FishingIntegration.Initialize();
             Cooking.Initialize();
+            ReusableDishesSystem.Initialize();
             ui = new SkillGraphicalUI();
             ui.Initialize();
             notifications = SkillNotifications.Create();
@@ -45,6 +46,7 @@ namespace xSkills
         {
             SkillProgressStorage.Tick();
             Cooking.Tick();
+            ReusableDishesSystem.Tick();
             StrongBackSystem.Tick();
             SurvivalExperienceSystem.Tick(Time.deltaTime);
             WaterSurvivalSystem.Tick(Time.deltaTime);
@@ -142,6 +144,7 @@ namespace xSkills
             NativeSkillHotkey.Uninstall();
             NotebookForecastSystem.Dispose();
             FishingIntegration.Dispose();
+            ReusableDishesSystem.Dispose();
             Cooking.Dispose();
             SkillProgressStorage.Dispose();
             SurvivalExperienceSystem.Reset();
