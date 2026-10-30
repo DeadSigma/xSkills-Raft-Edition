@@ -5,6 +5,7 @@ using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 using xSkills.Skills;
+using xSkills.Services;
 
 namespace xSkills.Systems
 {
@@ -47,10 +48,24 @@ namespace xSkills.Systems
         private static readonly FieldInfo PickupBowlField = AccessTools.Field(typeof(CookingTable), "pickupFoodItem");
         private static Harmony harmony;
         private static bool betterBowlPatched;
+        private static volatile bool betterBowlRescanRequested;
         private static float nextRefresh;
+        private static bool refreshInitialized;
+        private static AbilityData registeredAbility;
+        private static Guid refreshedWorld;
+        private static Network_Player refreshedPlayer;
+        private static int refreshedDurability;
 
         internal static int BaseDurability { get { return Mathf.Clamp(PlayerPrefs.GetInt(PrefPrefix + "durability", DefaultDurability), 1, 100); } }
-        internal static int FirstTierMultiplier { get { return Mathf.Clamp(PlayerPrefs.GetInt(PrefPrefix + "multiplier", DefaultMultiplier), 1, 10); } }
+        internal static int FirstTierMultiplier
+        {
+            get
+            {
+                if (registeredAbility != null && registeredAbility.Values.Length > 0)
+                    return Mathf.Clamp(registeredAbility.Values[0], 1, 10);
+                return Mathf.Clamp(PlayerPrefs.GetInt(PrefPrefix + "multiplier", DefaultMultiplier), 1, 10);
+            }
+        }
         internal static int RequiredLevel { get { return Mathf.Clamp(PlayerPrefs.GetInt(PrefPrefix + "required", DefaultRequiredLevel), 1, 25); } }
 
         internal static void RegisterAbility(SkillData skill)
@@ -58,8 +73,9 @@ namespace xSkills.Systems
             if (skill == null) return;
             AbilityData ability = skill.FindAbility("durablebowl");
             if (ability == null) return;
+            registeredAbility = ability;
             ability.RequiredLevel = Mathf.Clamp(RequiredLevel, 1, skill.MaxLevel);
-            ability.Values[0] = FirstTierMultiplier;
+            ability.Values[0] = Mathf.Clamp(PlayerPrefs.GetInt(PrefPrefix + "multiplier", DefaultMultiplier), 1, 10);
             ability.Values[1] = 0;
         }
 
@@ -118,6 +134,10 @@ namespace xSkills.Systems
                 Patch(typeof(Slot), "SetItem", new[] { typeof(Item_Base), typeof(int) }, null, "AfterSetItem");
                 Patch(typeof(CookingTable), "PickupFood", new[] { typeof(Network_Player) }, "BeforePickupFood", "AfterPickupFood");
                 Patch(typeof(Inventory), "AddItem", new[] { typeof(string), typeof(int) }, "BeforeAddFood", "AfterAddFood");
+                AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
+                betterBowlRescanRequested = true;
+                refreshInitialized = false;
+                nextRefresh = 0f;
             }
             catch (Exception ex)
             {
@@ -138,10 +158,40 @@ namespace xSkills.Systems
 
         internal static void Tick()
         {
+            if (betterBowlRescanRequested)
+            {
+                betterBowlRescanRequested = false;
+                TryPatchBetterBowl();
+            }
+
             if (Time.unscaledTime < nextRefresh) return;
             nextRefresh = Time.unscaledTime + 1f;
-            TryPatchBetterBowl();
+
+            Network_Player player = ComponentManager<Network_Player>.Value;
+            Guid world = SkillProgressStorage.IsWorldBound ? SaveAndLoad.WorldGuid : Guid.Empty;
+            int durability = MaximumDurability();
+            if (refreshInitialized && world == refreshedWorld && player == refreshedPlayer &&
+                durability == refreshedDurability) return;
+
+            if (player == null || !player.IsLocalPlayer || player.Inventory == null ||
+                player.Inventory.allSlots == null || player.Inventory.allSlots.Count == 0) return;
+
             RefreshItems();
+            refreshedWorld = world;
+            refreshedPlayer = player;
+            refreshedDurability = durability;
+            refreshInitialized = true;
+        }
+
+        private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
+        {
+            if (!betterBowlPatched) betterBowlRescanRequested = true;
+        }
+
+        internal static void OnPerkBalanceChanged()
+        {
+            refreshInitialized = false;
+            nextRefresh = 0f;
         }
 
         private static void RefreshItems()
@@ -386,7 +436,13 @@ namespace xSkills.Systems
         private static void TryPatchBetterBowl()
         {
             if (betterBowlPatched || harmony == null) return;
-            Type type = AccessTools.TypeByName("BetterBowl.BetterBowlMod");
+            Type type = null;
+            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try { type = assembly.GetType("BetterBowl.BetterBowlMod", false); }
+                catch { continue; }
+                if (type != null) break;
+            }
             MethodInfo method = type == null ? null : AccessTools.Method(type, "OnConsumeItem", new[] { typeof(Item_Base) });
             if (method == null) return;
             try
@@ -399,9 +455,16 @@ namespace xSkills.Systems
 
         internal static void Dispose()
         {
+            AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
             if (harmony != null) harmony.UnpatchAll(HarmonyId);
             harmony = null;
             betterBowlPatched = false;
+            betterBowlRescanRequested = false;
+            refreshInitialized = false;
+            refreshedWorld = Guid.Empty;
+            refreshedPlayer = null;
+            refreshedDurability = 0;
+            nextRefresh = 0f;
             Pickups.Clear();
             foreach (KeyValuePair<Item_Base, ItemDefaults> entry in ModifiedItems)
             {

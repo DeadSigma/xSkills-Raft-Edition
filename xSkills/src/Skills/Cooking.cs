@@ -58,7 +58,12 @@ namespace xSkills.Skills
                 "xskills:abilitydesc-fastfood", 9, 3, new[] { 10, 20, 30 }));
             AddAbility(new Ability("durablebowl", "xskills:ability-durablebowl",
                 "xskills:abilitydesc-durablebowl", 4, 2, new[] { 2, 0 }));
+            AddAbility(new Ability("canteencook", "xskills:ability-canteencook",
+                "xskills:abilitydesc-canteencook", 6, 2, new[] { 3, 6 }));
+            CookingAbilityBalance.RememberDefaults(this);
             xSkills.Systems.ReusableDishesSystem.RegisterAbility(this);
+            xSkills.Systems.CanteenCookSystem.RegisterAbility(this);
+            CookingAbilityBalance.Apply(this);
         }
 
         // Настройки наград
@@ -221,7 +226,8 @@ namespace xSkills.Skills
         {
             if (__instance == null || player == null || player.steamID == 0UL ||
                 itemInstance == null || itemInstance.baseItem == null ||
-                !__instance.HasItem || !WorldActive()) return;
+                !__instance.HasItem || !WorldActive() ||
+                xSkills.Systems.CanteenCookSystem.GetCount(__instance) > 1) return;
 
             PotOwners[__instance] = new CookOwner
             {
@@ -250,8 +256,16 @@ namespace xSkills.Skills
                     slot.CurrentItem.baseItem == null) continue;
 
                 batch.IngredientCount++;
+                xSkills.Systems.CanteenCookSystem.AddAdditionalContributions(slot,
+                    batch.Contributions, ref batch.IngredientCount);
                 CookOwner owner;
-                if (!PotOwners.TryGetValue(slot, out owner) || owner.PlayerId == 0UL ||
+                if (!PotOwners.TryGetValue(slot, out owner) || owner.PlayerId == 0UL)
+                {
+                    ulong recovered = xSkills.Systems.CanteenCookSystem.FirstContributor(slot);
+                    owner = new CookOwner { PlayerId = recovered,
+                        ItemIndex = slot.CurrentItem.baseItem.UniqueIndex };
+                }
+                if (owner.PlayerId == 0UL ||
                     slot.CurrentItem.baseItem.UniqueIndex != owner.ItemIndex) continue;
 
                 int count;
@@ -297,7 +311,7 @@ namespace xSkills.Skills
             int extraGroups = validRecipe ? Mathf.Max(0, batch.FoodGroups - 1) : 0;
             float xpPerPortion = PotExperience +
                 DiversityBonus * (extraIngredients + 0.5f * extraGroups);
-            float totalXp = xpPerPortion * __instance.Portions;
+            float totalXp = xpPerPortion * xSkills.Systems.CanteenCookSystem.ExpectedPortions(__instance);
 
             // Опыт делится по количеству добавленных ингредиентов
             foreach (KeyValuePair<ulong, int> contribution in batch.Contributions)

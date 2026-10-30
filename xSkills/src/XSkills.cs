@@ -31,6 +31,7 @@ namespace xSkills
             WaterSurvivalSystem.Initialize();
             FishingIntegration.Initialize();
             Cooking.Initialize();
+            CanteenCookSystem.Initialize();
             ReusableDishesSystem.Initialize();
             ui = new SkillGraphicalUI();
             ui.Initialize();
@@ -46,6 +47,7 @@ namespace xSkills
         {
             SkillProgressStorage.Tick();
             Cooking.Tick();
+            CanteenCookSystem.Tick();
             ReusableDishesSystem.Tick();
             StrongBackSystem.Tick();
             SurvivalExperienceSystem.Tick(Time.deltaTime);
@@ -145,6 +147,7 @@ namespace xSkills
             NotebookForecastSystem.Dispose();
             FishingIntegration.Dispose();
             ReusableDishesSystem.Dispose();
+            CanteenCookSystem.Dispose();
             Cooking.Dispose();
             SkillProgressStorage.Dispose();
             SurvivalExperienceSystem.Reset();

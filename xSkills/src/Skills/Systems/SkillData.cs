@@ -266,6 +266,7 @@ namespace xSkills.Skills
         {
             Registered.Clear();
             SurvivalAbilityBalance.Clear();
+            CookingAbilityBalance.Clear();
             UnlearnPoints = 0;
             Changed = null;
             ExperienceGained = null;

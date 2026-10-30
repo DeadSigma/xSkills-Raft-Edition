@@ -96,6 +96,10 @@ namespace xSkills.GUI
                         AddCurrentLine(lines, "ui-perk-current-stomach-capacity",
                             Amount(capacity.Value, " " + Localizer.T("ui-perk-stomach-units")));
                     break;
+                case "canteencook":
+                    AddCurrentLine(lines, "ui-canteencook-batches",
+                        Amount(ability.PreviewTier >= 2 ? CanteenCookSystem.BatchLimit : first));
+                    break;
                 case "durablebowl":
                     if (ability.PreviewTier >= 2)
                         lines.Add(Localizer.T("ui-bowl-unbreakable"));
