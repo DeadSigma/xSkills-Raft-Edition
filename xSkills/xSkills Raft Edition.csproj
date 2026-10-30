@@ -62,6 +62,11 @@
 			<Private>false</Private>
 		</Reference>
 
+		<Reference Include="com.rlabrecque.steamworks.net">
+			<HintPath>$(RaftDir)\Raft_Data\Managed\com.rlabrecque.steamworks.net.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+
 		<Reference Include="0Harmony">
 			<HintPath>$(RmlBinariesDir)\0Harmony.dll</HintPath>
 			<Private>false</Private>

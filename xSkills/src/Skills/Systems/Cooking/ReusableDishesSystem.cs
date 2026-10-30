@@ -255,6 +255,12 @@ namespace xSkills.Systems
             return null;
         }
 
+        internal static void EnsureFoodIsSeparate(Item_Base food)
+        {
+            if (food != null && GetReturnedBowl(food) != null)
+                ConfigureItem(food, false);
+        }
+
         private static void ConfigureItem(Item_Base item, bool isEmpty)
         {
             if (item == null || item.settings_Inventory == null) return;
@@ -410,6 +416,16 @@ namespace xSkills.Systems
                 pending.FoodName != uniqueItemName) return;
             Item_Base food = ItemManager.GetItemByName(uniqueItemName);
             if (food != null) __state = __instance.FindSuitableSlot(food);
+        }
+
+        internal static void ApplyPendingPickupWear(Inventory inventory, ItemInstance food)
+        {
+            PickupState pending;
+            if (inventory == null || food == null ||
+                !Pickups.TryGetValue(inventory, out pending) || pending.Applied ||
+                pending.FoodName != food.UniqueName) return;
+            WriteWear(food, pending.Wear);
+            pending.Applied = true;
         }
 
         private static void AfterAddFood(Inventory __instance, string uniqueItemName, Slot __state)

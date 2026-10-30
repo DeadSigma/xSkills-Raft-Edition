@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
 using HMLLibrary;
 using UnityEngine;
@@ -38,6 +39,7 @@ namespace xSkills.Systems
             new Dictionary<CookingTable_Slot, SlotStack>();
         private static readonly Dictionary<CookingTable, ActiveBatch> Batches =
             new Dictionary<CookingTable, ActiveBatch>();
+        private static readonly HashSet<CookingTable> MissingActive = new HashSet<CookingTable>();
         private static readonly FieldInfo PickupItemField =
             AccessTools.Field(typeof(CookingTable), "pickupFoodItem");
         private static Harmony harmony;
@@ -143,12 +145,21 @@ namespace xSkills.Systems
                 Patch(typeof(CookingTable), "FinishCooking", Type.EmptyTypes, null, "AfterFinish");
                 Patch(typeof(CookingTable), "RestoreCookingPot", new[] { typeof(RGD_CookingPot) },
                     null, "AfterRestore");
+                Patch(typeof(CookingTable), "OnDestroy", Type.EmptyTypes, null, "AfterPotDestroyed");
                 Patch(typeof(CookingTable), "HandlePickupFood", Type.EmptyTypes, null, "AfterPickupPrompt");
+                MethodInfo update = AccessTools.Method(typeof(CookingTable), "Update", Type.EmptyTypes);
+                if (update == null) throw new MissingMethodException(typeof(CookingTable).FullName, "Update");
+                harmony.Patch(update, postfix: new HarmonyMethod(
+                    AccessTools.Method(typeof(CanteenCookSystem), "AfterTableUpdate")),
+                    transpiler: new HarmonyMethod(
+                    AccessTools.Method(typeof(CanteenCookSystem), "AdjustCookingDuration")));
 
                 // В некоторых сборках обработчик наведения имеет другое имя
                 MethodInfo onRay = AccessTools.Method(typeof(CookingTable_Slot), "OnIsRayed", Type.EmptyTypes);
                 if (onRay != null)
-                    harmony.Patch(onRay, new HarmonyMethod(AccessTools.Method(typeof(CanteenCookSystem), "BeforeSlotRay")));
+                    harmony.Patch(onRay,
+                        prefix: new HarmonyMethod(AccessTools.Method(typeof(CanteenCookSystem), "BeforeSlotRay")),
+                        postfix: new HarmonyMethod(AccessTools.Method(typeof(CanteenCookSystem), "AfterSlotRay")));
                 else
                     Debug.LogWarning("[xSkills] Canteen Cook: CookingTable_Slot.OnIsRayed was not found");
             }
@@ -178,6 +189,7 @@ namespace xSkills.Systems
             trackedWorld = world;
             Stacks.Clear();
             Batches.Clear();
+            MissingActive.Clear();
         }
 
         internal static void Dispose()
@@ -186,6 +198,7 @@ namespace xSkills.Systems
             harmony = null;
             Stacks.Clear();
             Batches.Clear();
+            MissingActive.Clear();
             trackedWorld = Guid.Empty;
         }
 
@@ -290,11 +303,16 @@ namespace xSkills.Systems
             return table is CookingTable_Pot;
         }
 
+        private static bool IsBatchCooking(CookingTable table)
+        {
+            return table != null && table.CurrentRecipe != null && table.Portions == 0U;
+        }
+
         private static bool BeforeSlotRay(CookingTable_Slot __instance)
         {
             if (__instance == null || !__instance.HasItem || LocalMaximum() <= 1) return true;
             CookingTable table = __instance.GetComponentInParent<CookingTable>();
-            if (!IsCookingPot(table) || table.CurrentRecipe != null) return true;
+            if (!IsCookingPot(table)) return true;
             Network_Player player = ComponentManager<Network_Player>.Value;
             if (player == null || !player.IsLocalPlayer || player.Inventory == null) return true;
             ItemInstance held = player.Inventory.GetSelectedHotbarItem();
@@ -322,10 +340,46 @@ namespace xSkills.Systems
             return false;
         }
 
+        private static void AfterSlotRay(CookingTable_Slot __instance)
+        {
+            if (__instance == null) return;
+            int maximum = LocalMaximum();
+            if (maximum <= 1) return;
+            if (!IsCookingPot(__instance.GetComponentInParent<CookingTable>())) return;
+            if (CanvasHelper.ActiveMenu != MenuType.None || PlayerItemManager.IsBusy ||
+                !Helper.LocalPlayerIsWithinDistance(__instance.transform.position, Player.UseDistance)) return;
+
+            Network_Player player = ComponentManager<Network_Player>.Value;
+            if (player == null || !player.IsLocalPlayer || player.Inventory == null) return;
+            ItemInstance held = player.Inventory.GetSelectedHotbarItem();
+            if (held != null && held.Valid && held.Amount > 0) return;
+
+            DisplayTextManager texts = ComponentManager<DisplayTextManager>.Value;
+            if (texts == null) return;
+            string count = GetCount(__instance).ToString(CultureInfo.InvariantCulture) + "/" +
+                maximum.ToString(CultureInfo.InvariantCulture);
+            if (__instance.HasItem)
+            {
+                PlayerInput input = PlayerInput.GetPlayerByIndex(0);
+                InputAction action = input == null ? null : input.actions["Interact"];
+                if (action != null)
+                {
+                    texts.ShowText((Localizer.Code == "ru" ? "Забрать ингредиент" : "Pickup ingredient") +
+                        " (" + count + ")",
+                        action.GetBindingDisplayString((InputBinding.DisplayStringOptions)0, null),
+                        MyInput.Keybinds["Interact"].MainKey, 0, 0, true);
+                    return;
+                }
+            }
+            texts.ShowText(count, 0, true, 0);
+        }
+
         private static bool BeforeInsert(CookingTable_Slot __instance, Network_Player player,
             ItemInstance itemInstance)
         {
-            if (__instance == null || !IsCookingPot(__instance.GetComponentInParent<CookingTable>()) ||
+            CookingTable table = __instance == null ? null :
+                __instance.GetComponentInParent<CookingTable>();
+            if (!IsCookingPot(table) ||
                 !__instance.HasItem || itemInstance == null ||
                 itemInstance.baseItem == null || __instance.CurrentItem == null ||
                 __instance.CurrentItem.baseItem == null ||
@@ -368,13 +422,6 @@ namespace xSkills.Systems
         {
             if (__instance == null || !IsCookingPot(__instance.GetComponentInParent<CookingTable>()))
                 return true;
-            CookingTable table = __instance.GetComponentInParent<CookingTable>();
-            if (table != null && table.CurrentRecipe != null)
-            {
-                StripMarker(__instance);
-                Stacks.Remove(__instance);
-                return true;
-            }
             SlotStack stack = ReadStack(__instance);
             if (stack == null) return true;
             if (stack.Contributors.Count <= 1)
@@ -430,7 +477,10 @@ namespace xSkills.Systems
                     return false;
                 }
                 BeforeInsert(slot, player, item);
-                __result = Raft_Network.IsHost;
+                if (Raft_Network.IsHost && network != null)
+                    network.RPC(message, Target.Other, Steamworks.EP2PSend.k_EP2PSendReliable,
+                        NetworkChannel.Channel_Game);
+                __result = true;
                 return false;
             }
             if (msg.Type == Messages.CookingPot_Start)
@@ -492,6 +542,7 @@ namespace xSkills.Systems
             if (!__state) return;
             if (__instance == null || !(__instance is CookingTable_Pot)) return;
             ActiveBatch batch = new ActiveBatch { Multiplier = batches };
+            MissingActive.Remove(__instance);
             Batches[__instance] = batch;
         }
 
@@ -502,6 +553,7 @@ namespace xSkills.Systems
             if (!__result || !__state || recipe == null)
             {
                 Batches.Remove(__instance);
+                MissingActive.Remove(__instance);
                 return;
             }
             ActiveBatch batch;
@@ -522,6 +574,7 @@ namespace xSkills.Systems
                 __instance.Portions = (uint)Math.Min((long)uint.MaxValue, (long)__instance.Portions + additional);
             }
             Batches.Remove(__instance);
+            MissingActive.Remove(__instance);
             ClearActive(__instance);
             if (__instance.Slots != null)
                 foreach (CookingTable_Slot slot in __instance.Slots)
@@ -548,16 +601,26 @@ namespace xSkills.Systems
         private static ActiveBatch ActiveFor(CookingTable table)
         {
             ActiveBatch batch;
+            if (table == null) return null;
             if (Batches.TryGetValue(table, out batch)) return batch;
-            if (table == null || table.CurrentRecipe == null || table.Portions != 0U) return null;
+            if (table.CurrentRecipe == null || table.Portions != 0U || MissingActive.Contains(table)) return null;
             string key = ActiveKey(table);
-            if (key == null || !PlayerPrefs.HasKey(key)) return null;
+            if (key == null) return null;
+            if (!PlayerPrefs.HasKey(key))
+            {
+                MissingActive.Add(table);
+                return null;
+            }
             string[] parts = PlayerPrefs.GetString(key, "").Split(',');
             int recipe, multiplier;
             uint basePortions;
             if (parts.Length != 3 || !int.TryParse(parts[0], out recipe) ||
                 !int.TryParse(parts[1], out multiplier) || !uint.TryParse(parts[2], out basePortions) ||
-                recipe != (int)table.CurrentRecipe.RecipeIndex || multiplier <= 1 || multiplier > 10) return null;
+                recipe != (int)table.CurrentRecipe.RecipeIndex || multiplier <= 1 || multiplier > 10)
+            {
+                MissingActive.Add(table);
+                return null;
+            }
             batch = new ActiveBatch { RecipeIndex = recipe, Multiplier = multiplier, BasePortions = basePortions };
             Batches[table] = batch;
             return batch;
@@ -571,16 +634,25 @@ namespace xSkills.Systems
             PlayerPrefs.Save();
         }
 
+        private static void AfterPotDestroyed(CookingTable __instance)
+        {
+            if (!IsCookingPot(__instance)) return;
+            Batches.Remove(__instance);
+            MissingActive.Remove(__instance);
+            if (__instance.Slots != null)
+                foreach (CookingTable_Slot slot in __instance.Slots)
+                    if (slot != null) Stacks.Remove(slot);
+        }
+
         private static void AfterRestore(CookingTable __instance)
         {
             if (!IsCookingPot(__instance)) return;
             if (__instance.Slots != null)
                 foreach (CookingTable_Slot slot in __instance.Slots)
                     if (slot != null) { Stacks.Remove(slot); ReadStack(slot); }
-            if (__instance.CurrentRecipe != null && __instance.Portions == 0U)
-                ActiveFor(__instance);
-            else
-                Batches.Remove(__instance);
+            MissingActive.Remove(__instance);
+            Batches.Remove(__instance);
+            if (IsBatchCooking(__instance)) ActiveFor(__instance);
         }
 
         internal static uint ExpectedPortions(CookingTable table)
@@ -593,16 +665,122 @@ namespace xSkills.Systems
                 (long)table.Portions + (long)batch.BasePortions * (batch.Multiplier - 1));
         }
 
+        private static IEnumerable<CodeInstruction> AdjustCookingDuration(
+            IEnumerable<CodeInstruction> instructions)
+        {
+            MethodInfo vanilla = AccessTools.PropertyGetter(typeof(SO_CookingTable_Recipe), "CookTime");
+            MethodInfo adjusted = AccessTools.Method(typeof(CanteenCookSystem), "EffectiveCookTime");
+            bool found = false;
+            foreach (CodeInstruction instruction in instructions)
+            {
+                if (instruction.Calls(vanilla))
+                {
+                    CodeInstruction argument = new CodeInstruction(OpCodes.Ldarg_0);
+                    argument.labels.AddRange(instruction.labels);
+                    instruction.labels.Clear();
+                    argument.blocks.AddRange(instruction.blocks);
+                    instruction.blocks.Clear();
+                    yield return argument;
+                    instruction.opcode = OpCodes.Call;
+                    instruction.operand = adjusted;
+                    found = true;
+                }
+                yield return instruction;
+            }
+            if (!found)
+                Debug.LogWarning("[xSkills] Canteen Cook: CookTime comparison was not found");
+        }
+
+        private static float EffectiveCookTime(SO_CookingTable_Recipe recipe, CookingTable table)
+        {
+            if (recipe == null) return 0f;
+            float duration = recipe.CookTime;
+            if (!IsCookingPot(table)) return duration;
+            ActiveBatch batch = ActiveFor(table);
+            if (batch != null && batch.Multiplier > 1 &&
+                batch.RecipeIndex == (int)recipe.RecipeIndex)
+                duration *= batch.Multiplier;
+            return duration;
+        }
+
+        private static void AfterTableUpdate(CookingTable __instance)
+        {
+            if (Raft_Network.IsHost || !IsBatchCooking(__instance) || !IsCookingPot(__instance)) return;
+            CookingTable_Pot pot = (CookingTable_Pot)__instance;
+            Fuel fuel = pot.Fuel;
+            if (fuel == null || !fuel.IsBurning() || fuel.GetFuelCount() <= 0) return;
+            float duration = EffectiveCookTime(__instance.CurrentRecipe, __instance);
+            if (duration > 0f && __instance.CookTimer < duration)
+                __instance.CookTimer = Mathf.Min(__instance.CookTimer + Time.deltaTime, duration);
+        }
+
+        internal static uint PortionsBeingCookedForDilution(CookingTable table)
+        {
+            if (table == null || table.CurrentRecipe == null) return 0U;
+            ActiveBatch batch = ActiveFor(table);
+            if (batch != null && batch.Multiplier > 1 &&
+                batch.RecipeIndex == (int)table.CurrentRecipe.RecipeIndex)
+                return (uint)Math.Min((long)uint.MaxValue,
+                    (long)table.CurrentRecipe.Portions * batch.Multiplier);
+            return table.CurrentRecipe.Portions;
+        }
+
+        internal static float CookTimeForDilution(CookingTable table)
+        {
+            return table == null ? 0f : EffectiveCookTime(table.CurrentRecipe, table);
+        }
+
+        private static string PortionLabel(uint portions)
+        {
+            return Localizer.Code == "ru" ? "Порций: " + portions : "Portions: " + portions;
+        }
+
         private static void AfterPickupPrompt(CookingTable __instance)
         {
-            if (!IsCookingPot(__instance) || __instance.CurrentRecipe == null || __instance.Portions == 0U ||
-                __instance.displayText == null || __instance.localPlayer == null ||
-                __instance.localPlayer.Inventory == null || PickupItemField == null) return;
-            Item_Base pickup = PickupItemField.GetValue(__instance) as Item_Base;
+            if (!IsCookingPot(__instance) || __instance.CurrentRecipe == null ||
+                __instance.displayText == null) return;
+
+            if (__instance.Portions == 0U)
+            {
+                float duration = EffectiveCookTime(__instance.CurrentRecipe, __instance);
+                int percent = duration > 0f ? Mathf.Clamp(Mathf.FloorToInt(
+                    100f * __instance.CookTimer / duration), 0, 99) : 0;
+                string progress = (Localizer.Code == "ru" ? "Готовится: " : "Cooking: ") +
+                    percent + "% | " + PortionLabel(PortionsBeingCookedForDilution(__instance));
+                __instance.displayText.ShowText(progress, 0, true, 0);
+                return;
+            }
+
+            string countLabel = PortionLabel(__instance.Portions);
+            Item_Base pickup = PickupItemField == null ? null :
+                PickupItemField.GetValue(__instance) as Item_Base;
+            if (pickup == null || __instance.localPlayer == null ||
+                __instance.localPlayer.Inventory == null)
+            {
+                __instance.displayText.ShowText(countLabel, 0, true, 0);
+                return;
+            }
+
             ItemInstance held = __instance.localPlayer.Inventory.GetSelectedHotbarItem();
-            if (pickup == null || held == null || !held.Valid || held.UniqueIndex != pickup.UniqueIndex) return;
-            __instance.displayText.ShowText(Localizer.F("canteencook-ready-portions", __instance.Portions),
-                0, true, 0);
+            if (held != null && held.Valid && held.UniqueIndex == pickup.UniqueIndex)
+            {
+                PlayerInput input = PlayerInput.GetPlayerByIndex(0);
+                InputAction action = input == null ? null : input.actions["Interact"];
+                if (action != null)
+                {
+                    __instance.displayText.ShowText("Pickup " +
+                        __instance.CurrentRecipe.Result.settings_Inventory.DisplayName +
+                        " (" + countLabel + ")",
+                        action.GetBindingDisplayString((InputBinding.DisplayStringOptions)0, null),
+                        MyInput.Keybinds["Interact"].MainKey, 0, 0, true);
+                    return;
+                }
+            }
+            LocalizationParameters.itemX = pickup.settings_Inventory.DisplayName;
+            __instance.displayText.ShowText(
+                Helper.GetTerm(__instance.localization_requiresHeldPickupItem, true) +
+                " | " + countLabel, 0, true, 0);
         }
+
     }
 }

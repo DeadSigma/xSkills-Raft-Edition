@@ -87,7 +87,7 @@ namespace xSkills.GUI
             if (id == "survival") return Localizer.T("settings-survival-title");
             if (id == "audio") return Localizer.T("settings-audio-title");
             if (id == "diet") return Localizer.T("settings-diet-title");
-            if (id == "skill:survival") return Localizer.T("settings-survival-skill-title");
+            if (id == "skill:survival") return Localizer.SkillName("survival");
             if (id.StartsWith("skill:", StringComparison.Ordinal))
                 return Localizer.SkillName(id.Substring(6));
             return id;
@@ -216,7 +216,7 @@ namespace xSkills.GUI
         {
             if (skillId == "survival") { BuildSurvivalSkillSettings(parent); return; }
             if (skillId == "cooking") { BuildCookingSkillSettings(parent); return; }
-            if (skillId == "fishing") { BuildFishingIntegrationSettings(parent); return; }
+            if (skillId == "fishing") { BuildFishingSkillSettings(parent); return; }
             UIFactory.Label(parent, "Skill settings summary", Localizer.F("settings-skill-heading", Localizer.SkillName(skillId)),
                 22, 26, 585, 55, 26, UIFactory.Gold);
             UIFactory.Label(parent, "Skill settings template", Localizer.T("settings-skill-future"),

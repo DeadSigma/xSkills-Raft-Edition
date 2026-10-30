@@ -59,27 +59,6 @@ namespace xSkills.GUI
             list.sizeDelta = new Vector2(612f, y + 35f);
         }
 
-        private void BuildFishingIntegrationSettings(RectTransform panel)
-        {
-            WaterSurvivalSettings s = WaterSurvivalSettings.Current;
-            if (s == null) return;
-            RectTransform list;
-            BuildWaterScroll(panel, out list);
-            float y = 10f;
-            UIFactory.Label(list, "Fishing integration intro", Localizer.T("settings-fishing-intro"),
-                20, y, 565, 90, 19, UIFactory.White, TextAnchor.UpperLeft);
-            y += 106f;
-            WaterSlider(list, "fishing base delay", "settings-fishing-delay", ref y,
-                .2f, 3f, s.FishingDelayMultiplier, v => s.FishingDelayMultiplier = v, "x", false);
-            WaterSlider(list, "fishing speed per tier", "settings-fishing-per-rank", ref y,
-                0f, 1f, s.FishingSpeedPerRank, v => s.FishingSpeedPerRank = v, "+x", false);
-            WaterSlider(list, "fishing experience", "settings-fishing-experience", ref y,
-                0f, 200f, s.FishingExperiencePerCatch, v => s.FishingExperiencePerCatch = v, "XP", true);
-            UIFactory.Label(list, "Fishing actual perk", Localizer.T("settings-fishing-perk-hint"),
-                20, y + 12f, 565, 92, 18, UIFactory.White, TextAnchor.UpperLeft);
-            list.sizeDelta = new Vector2(612f, y + 130f);
-        }
-
         private static void BuildWaterScroll(RectTransform panel, out RectTransform list)
         {
             RectTransform viewport = UIFactory.Rect(panel, "Water settings viewport", 8, 5, 625, 750);

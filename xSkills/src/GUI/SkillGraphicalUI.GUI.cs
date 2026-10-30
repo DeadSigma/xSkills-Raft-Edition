@@ -433,8 +433,10 @@ namespace xSkills.GUI
             else
             {
                 SetRightPanel(Localizer.AbilityName(selectedAbility.Id),
-                    xSkills.Systems.SurvivalPerkSystem.DescribeAbility(selectedAbility,
-                        Localizer.AbilityDescription(selectedAbility.Id)),
+                    selectedAbility.Id == "dilution"
+                        ? DescribeDilution(selectedAbility, selectedSkill)
+                        : xSkills.Systems.SurvivalPerkSystem.DescribeAbility(selectedAbility,
+                            Localizer.AbilityDescription(selectedAbility.Id)),
                     Localizer.F("ui-tier", selectedAbility.PreviewTier, selectedAbility.MaxTier));
                 UpdateCurrentPerkValues();
                 tooltipRequirements.text = selectedAbility.RequiredLevel > selectedSkill.PreviewLevel

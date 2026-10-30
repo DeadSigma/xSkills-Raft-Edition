@@ -66,6 +66,33 @@ namespace xSkills.GUI
             return at >= 0 && at < ability.Values.Length ? ability.Values[at] : 0;
         }
 
+        private static string DescribeDilution(AbilityData ability, SkillData skill)
+        {
+            string description = Localizer.AbilityDescription("dilution");
+            if (ability == null || ability.ValuesPerTier < 3) return description;
+
+            int skillLevel = skill != null ? skill.Level : 1;
+            List<string> lines = new List<string>
+            {
+                description,
+                "",
+                Localizer.T("ui-dilution-bonuses-heading")
+            };
+
+            for (int tier = 1; tier <= ability.MaxTier; tier++)
+            {
+                int startIndex = (tier - 1) * ability.ValuesPerTier;
+                if (startIndex + 2 >= ability.Values.Length) break;
+                long start = Math.Max(0, ability.Values[startIndex]);
+                long growth = Math.Max(0, ability.Values[startIndex + 1]);
+                long maximum = Math.Max(0, ability.Values[startIndex + 2]);
+                long extra = Math.Min(maximum, start + growth * Math.Max(0, skillLevel - 1));
+                lines.Add(Localizer.F("ui-dilution-tier-bonus", tier,
+                    ColorAmount("+" + extra + "%")));
+            }
+            return string.Join("\n", lines.ToArray());
+        }
+
         private void UpdateCurrentPerkValues()
         {
             if (tooltipCurrentValues == null || selectedAbility == null || selectedSkill == null ||
@@ -95,6 +122,10 @@ namespace xSkills.GUI
                     if (capacity.HasValue)
                         AddCurrentLine(lines, "ui-perk-current-stomach-capacity",
                             Amount(capacity.Value, " " + Localizer.T("ui-perk-stomach-units")));
+                    break;
+                case "dilution":
+                    AddCurrentLine(lines, "ui-dilution-bonus",
+                        Amount(DilutionSystem.CurrentBonusPercent, "%", true));
                     break;
                 case "canteencook":
                     AddCurrentLine(lines, "ui-canteencook-batches",
@@ -141,7 +172,7 @@ namespace xSkills.GUI
                     AddCurrentLine(lines, "ui-perk-current-forecast", Amount(first));
                     break;
                 case "angler":
-                    // Ускорение вычисляется из настроек рыбалки, а не из массива описания
+                    // Ускорение рассчитывается по текущему значению перка Angler
                     WaterSurvivalSettings fishing = WaterSurvivalSettings.Current;
                     float baseDelay = fishing != null ? Mathf.Max(.1f, fishing.FishingDelayMultiplier) : 1f;
                     float speed = fishing != null ?

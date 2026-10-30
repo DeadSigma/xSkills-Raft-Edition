@@ -442,7 +442,7 @@ namespace xSkills.Systems
 
             float worth = Mathf.Max(0f, item.HungerYield) + .5f * Mathf.Max(0f, item.BonusHungerYield)
                 + .3f * Mathf.Max(0f, item.ThirstYield + item.BonusThirstYield);
-            float gain = Mathf.Clamp(worth / 2.5f, 2f, 25f);
+            float gain = Mathf.Clamp(worth / 2.5f, 2f, 25f) * DilutionSystem.NutritionFraction(edibleItem);
             float total = 0f;
             for (int i = 0; i < 4; i++) total += nutrition[i];
             if (total <= 0f) return;

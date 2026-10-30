@@ -28,24 +28,25 @@ namespace xSkills.Systems
             }
         }
 
-        internal static int FishingTier
-        {
-            get
-            {
-                SkillData skill = SkillCatalog.Find("fishing");
-                AbilityData ability = skill != null ? skill.FindAbility("angler") : null;
-                return ability != null ? ability.PreviewTier : 0;
-            }
-        }
-
         internal static float DelayMultiplier
         {
             get
             {
                 WaterSurvivalSettings s = WaterSurvivalSettings.Current;
                 if (s == null) return 1f;
-                return Mathf.Max(.1f, s.FishingDelayMultiplier /
-                    (1f + FishingTier * s.FishingSpeedPerRank));
+                SkillData skill = SkillCatalog.Find("fishing");
+                AbilityData angler = skill != null ? skill.FindAbility("angler") : null;
+                float bonus = 0f;
+                if (angler != null && angler.PreviewTier > 0 && angler.ValuesPerTier > 0)
+                {
+                    int tier = Mathf.Clamp(angler.PreviewTier, 1, angler.MaxTier);
+                    int index = (tier - 1) * angler.ValuesPerTier;
+                    if (index >= 0 && index < angler.Values.Length)
+                        bonus = Mathf.Max(0f, angler.Values[index]) / 100f;
+                }
+                // Сохранён коэффициент старых настроек рыбалки
+                float strength = s.FishingSpeedPerRank / .2f;
+                return Mathf.Max(.1f, s.FishingDelayMultiplier / (1f + bonus * strength));
             }
         }
 
@@ -53,15 +54,15 @@ namespace xSkills.Systems
         {
             if (owner == null || !owner.IsLocalPlayer || !SkillProgressStorage.IsWorldBound) return;
             SkillData skill = SkillCatalog.Find("fishing");
-            WaterSurvivalSettings s = WaterSurvivalSettings.Current;
-            if (skill == null || s == null || skill.Level >= skill.MaxLevel) return;
-            skill.AddExperience(s.FishingExperiencePerCatch);
+            if (skill == null || skill.Level >= skill.MaxLevel) return;
+            skill.AddExperience(Fishing.ExperiencePerCatch);
         }
 
         internal static void Dispose()
         {
             if (harmony != null) harmony.UnpatchAll(HarmonyId);
             harmony = null;
+            FishingAbilityBalance.Clear();
         }
     }
 

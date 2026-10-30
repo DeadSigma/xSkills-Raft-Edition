@@ -44,26 +44,91 @@ namespace xSkills.Skills
         private static Harmony harmony;
         private static Guid trackedWorld;
 
+        // Идентификаторы работающих перков
+        public int DurableBowlId { get; private set; }
+        public int CanteenCookId { get; private set; }
+        public int DilutionId { get; private set; }
+
+        // Неиспользуемые идентификаторы
+        // public int ChefId { get; private set; }
+        // public int EggTimerId { get; private set; }
+        // public int PreserverId { get; private set; }
+        // public int HappyMealId { get; private set; }
+        // public int FastFoodId { get; private set; }
+
         public Cooking() : base("cooking", "xskills:skill-cooking", "xskills:group-processing")
         {
-            AddAbility(new Ability("chef", "xskills:ability-chef",
-                "xskills:abilitydesc-chef", 1, 3, new[] { 10, 20, 30 }));
-            AddAbility(new Ability("eggtimer", "xskills:ability-eggtimer",
-                "xskills:abilitydesc-eggtimer", 3, 3, new[] { 10, 20, 30 }));
-            AddAbility(new Ability("preserver", "xskills:ability-preserver",
-                "xskills:abilitydesc-preserver", 5, 3, new[] { 10, 20, 30 }));
-            AddAbility(new Ability("happymeal", "xskills:ability-happymeal",
-                "xskills:abilitydesc-happymeal", 7, 3, new[] { 10, 20, 30 }));
-            AddAbility(new Ability("fastfood", "xskills:ability-fastfood",
-                "xskills:abilitydesc-fastfood", 9, 3, new[] { 10, 20, 30 }));
-            AddAbility(new Ability("durablebowl", "xskills:ability-durablebowl",
-                "xskills:abilitydesc-durablebowl", 4, 2, new[] { 2, 0 }));
-            AddAbility(new Ability("canteencook", "xskills:ability-canteencook",
-                "xskills:abilitydesc-canteencook", 6, 2, new[] { 3, 6 }));
+            // Неиспользуемые перки - механики пока не реализованы
+
+            // Перк Chef отключён
+            // AddAbility(new Ability(
+            //     "chef",
+            //     "xskills:ability-chef",
+            //     "xskills:abilitydesc-chef",
+            //     1, 3, new[] { 10, 20, 30 }));
+
+            // Перк Egg Timer отключён
+            // AddAbility(new Ability(
+            //     "eggtimer",
+            //     "xskills:ability-eggtimer",
+            //     "xskills:abilitydesc-eggtimer",
+            //     3, 3, new[] { 10, 20, 30 }));
+
+            // Перк Preserver отключён
+            // AddAbility(new Ability(
+            //     "preserver",
+            //     "xskills:ability-preserver",
+            //     "xskills:abilitydesc-preserver",
+            //     5, 3, new[] { 10, 20, 30 }));
+
+            // Перк Happy Meal отключён
+            // AddAbility(new Ability(
+            //     "happymeal",
+            //     "xskills:ability-happymeal",
+            //     "xskills:abilitydesc-happymeal",
+            //     7, 3, new[] { 10, 20, 30 }));
+
+            // Перк Fast Food отключён
+            // AddAbility(new Ability(
+            //     "fastfood",
+            //     "xskills:ability-fastfood",
+            //     "xskills:abilitydesc-fastfood",
+            //     9, 3, new[] { 10, 20, 30 }));
+
+            // Рабочие перки
+
+            // Прочность посуды увеличивается
+            // 0 - множитель прочности или неразрушаемая посуда
+            DurableBowlId = AddAbility(new Ability(
+                "durablebowl",
+                "xskills:ability-durablebowl",
+                "xskills:abilitydesc-durablebowl",
+                4, 2, new[] { 2, 0 }));
+
+            // За одну готовку обрабатывается несколько партий
+            // 0 - максимальное количество партий
+            CanteenCookId = AddAbility(new Ability(
+                "canteencook",
+                "xskills:ability-canteencook",
+                "xskills:abilitydesc-canteencook",
+                6, 2, new[] { 3, 6 }));
+
+            // Количество порций увеличивается без новых ингредиентов
+            // 0 - начальный бонус в процентах
+            // 1 - прирост за уровень кулинарии
+            // 2 - максимальный бонус в процентах
+            DilutionId = AddAbility(new Ability(
+                "dilution",
+                "xskills:ability-dilution",
+                "xskills:abilitydesc-dilution",
+                3, 3, new[] { 10, 1, 20, 20, 1, 30, 20, 1, 40 }));
+
             CookingAbilityBalance.RememberDefaults(this);
             xSkills.Systems.ReusableDishesSystem.RegisterAbility(this);
             xSkills.Systems.CanteenCookSystem.RegisterAbility(this);
             CookingAbilityBalance.Apply(this);
+
+            ExpBase = 25f;
         }
 
         // Настройки наград
